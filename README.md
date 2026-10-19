@@ -703,7 +703,7 @@ Then record the 3-minute video showing the [four demo moments](#4-the-final-demo
 Copy this into a GitHub issue and tick items off as you go.
 
 **Phase 1: Foundations**
-- [ ] Step 1: Project setup
+- [x] Step 1: Project setup
 - [ ] Step 2: Tables and fake data
 - [ ] Step 3: Insecure AI chat (leak screenshot saved)
 

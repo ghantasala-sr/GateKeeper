@@ -33,7 +33,7 @@ async def main() -> None:
     try:
         async with conn.transaction():
             await conn.execute("DELETE FROM chunks")
-            for folder, (tenant_name, _, _) in TENANTS.items():
+            for folder, (tenant_name, *_) in TENANTS.items():
                 total = 0
                 for path in sorted((SEED_DIR / folder).glob("*.md")):
                     meta, body = parse_front_matter(path.read_text())

@@ -7,12 +7,15 @@ set by SessionMiddleware (see app/main.py).
 """
 
 import logging
+from dataclasses import asdict
 
 from authlib.integrations.base_client import OAuthError
 from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, HTTPException, Request
 from joserfc.errors import JoseError
 
+from app import db
+from app.auth.bridge import AuthBridgeError, Principal, principal_from_okta
 from app.config import settings
 
 logger = logging.getLogger("gatekeeper.auth")
@@ -46,6 +49,11 @@ def okta():
     return _okta
 
 
+async def principal_for(claims: dict) -> Principal:
+    async with db.get_pool().acquire() as conn:
+        return await principal_from_okta(conn, claims)
+
+
 @router.get("/login")
 async def login(request: Request):
     return await okta().authorize_redirect(request, settings.okta_redirect_uri)
@@ -76,6 +84,12 @@ async def callback(request: Request) -> dict:
     if not claims:
         raise HTTPException(502, "Okta did not return an ID token")
 
-    logger.info("okta login verified: sub=%s email=%s groups=%s", claims["sub"], claims.get("email"), claims.get("groups"))
-    # Step 6 turns these claims into a Principal; for now just show what was verified.
-    return {"sub": claims["sub"], "email": claims.get("email"), "groups": claims.get("groups", [])}
+    try:
+        principal = await principal_for(dict(claims))
+    except AuthBridgeError as e:
+        logger.warning("okta login refused: sub=%s email=%s groups=%s: %s", claims["sub"], claims.get("email"), claims.get("groups"), e)
+        raise HTTPException(403, f"Login refused: {e}")
+
+    logger.info("okta login: user=%s tenant=%s role=%s", principal.user_id, principal.tenant_id, principal.role)
+    # Step 7 swaps this for a signed access token carrying the same fields.
+    return asdict(principal)

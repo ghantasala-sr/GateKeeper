@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.auth import oidc
+from app.auth.bridge import AuthBridgeError, Principal
 
 ISSUER = "https://fake-okta.example/oauth2/default"
 CLIENT_ID = "test-client"
@@ -110,6 +111,15 @@ def okta(monkeypatch):
 
     monkeypatch.setattr(oidc, "CLIENT_KWARGS", {"transport": httpx.MockTransport(handler)})
 
+    # The bridge has its own DB tests (test_bridge.py); here just record what it was given.
+    async def fake_principal_for(claims):
+        fake["bridged_claims"] = claims
+        if fake.get("bridge_error"):
+            raise AuthBridgeError(fake["bridge_error"])
+        return Principal("user-1", "tenant-1", claims["email"], "hr_manager", ("docs:read",))
+
+    monkeypatch.setattr(oidc, "principal_for", fake_principal_for)
+
     app = FastAPI()
     app.add_middleware(SessionMiddleware, secret_key="test-session-secret", session_cookie="gk_login")
     app.include_router(oidc.router)
@@ -133,10 +143,29 @@ def finish_login(client, state: str, code: str = "good-code"):
     return client.get("/auth/okta/callback", params={"code": code, "state": state})
 
 
-def test_full_login_returns_verified_claims(okta):
+def test_full_login_returns_principal(okta):
     resp = finish_login(okta, start_login(okta))
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {"sub": "00u123", "email": "hr.manager@acme.example", "groups": ["gk-hr-manager"]}
+    assert resp.json() == {
+        "user_id": "user-1", "tenant_id": "tenant-1", "email": "hr.manager@acme.example",
+        "role": "hr_manager", "scopes": ["docs:read"],
+    }
+    # The bridge only ever sees claims that passed validation.
+    assert okta.fake["bridged_claims"]["iss"] == ISSUER
+    assert okta.fake["bridged_claims"]["groups"] == ["gk-hr-manager"]
+
+
+def test_bridge_refusal_is_403(okta):
+    okta.fake["bridge_error"] = "user is in no Gatekeeper group"
+    resp = finish_login(okta, start_login(okta))
+    assert resp.status_code == 403
+    assert "no Gatekeeper group" in resp.text
+
+
+def test_rejected_token_never_reaches_bridge(okta):
+    okta.fake["make_id_token"] = BAD_ID_TOKENS["forged signature"]
+    finish_login(okta, start_login(okta))
+    assert "bridged_claims" not in okta.fake
 
 
 BAD_ID_TOKENS = {

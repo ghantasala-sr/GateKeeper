@@ -1,0 +1,107 @@
+"""The auth bridge: turn any verified login into one standard Principal (Step 6).
+
+Okta (OIDC) and, later, Microsoft (SAML) describe users differently. Everything
+after login only ever sees a Principal.
+"""
+
+from dataclasses import dataclass
+
+import asyncpg
+
+
+@dataclass(frozen=True)
+class Principal:
+    user_id: str
+    tenant_id: str
+    email: str
+    role: str                # employee | hr_manager | admin
+    scopes: tuple[str, ...]  # e.g. ("docs:read",)
+
+
+class AuthBridgeError(Exception):
+    """The login was valid, but it doesn't map to a Gatekeeper user."""
+
+
+ROLE_FROM_OKTA_GROUP = {
+    "gk-employee": "employee",
+    "gk-hr-manager": "hr_manager",
+    "gk-admin": "admin",
+}
+
+# Lowest first. With several groups, the LOWEST role wins, so an extra or
+# stale group can never quietly raise someone's access.
+ROLE_ORDER = ("employee", "hr_manager", "admin")
+
+ROLE_SCOPES = {
+    "employee": ("docs:read",),
+    "hr_manager": ("docs:read",),
+    "admin": ("docs:read", "docs:admin"),
+}
+
+
+def role_from_groups(groups: list[str]) -> str:
+    roles = {ROLE_FROM_OKTA_GROUP[g] for g in groups if g in ROLE_FROM_OKTA_GROUP}
+    if not roles:
+        raise AuthBridgeError("user is in no Gatekeeper group")
+    return min(roles, key=ROLE_ORDER.index)
+
+
+async def principal_from_okta(conn: asyncpg.Connection, claims: dict) -> Principal:
+    """Map verified Okta ID token claims to a Principal, creating or updating the user."""
+    # `iss` was already checked against OKTA_ISSUER during token validation,
+    # so it identifies which IdP sent this login.
+    tenant_id = await conn.fetchval(
+        "SELECT id FROM tenants WHERE idp_issuer = $1 AND idp_type = 'okta_oidc'", claims["iss"]
+    )
+    if tenant_id is None:
+        raise AuthBridgeError(f"no tenant is configured for issuer {claims['iss']}")
+
+    role = role_from_groups(claims.get("groups") or [])
+    email = (claims.get("email") or "").strip().lower()
+    if not email:
+        raise AuthBridgeError("ID token has no email")
+    return await _upsert_user(conn, tenant_id, external_id=claims["sub"], email=email, role=role)
+
+
+async def _upsert_user(conn: asyncpg.Connection, tenant_id, *, external_id: str, email: str, role: str) -> Principal:
+    async with conn.transaction():
+        user = await conn.fetchrow(
+            "SELECT id, active FROM users WHERE tenant_id = $1 AND external_id = $2 FOR UPDATE",
+            tenant_id, external_id,
+        )
+        if user is None:
+            # First login. Adopt a pre-created row with this email (seeded now,
+            # SCIM-provisioned later), but never one already linked to someone else.
+            existing = await conn.fetchrow(
+                "SELECT id, active, external_id FROM users WHERE tenant_id = $1 AND lower(email) = $2 FOR UPDATE",
+                tenant_id, email,
+            )
+            if existing is not None and existing["external_id"] is not None:
+                raise AuthBridgeError("email already belongs to a different IdP user")
+            if existing is not None:
+                user = existing
+            else:
+                user = await conn.fetchrow(
+                    "INSERT INTO users (tenant_id, email, external_id, role) VALUES ($1, $2, $3, $4) RETURNING id, active",
+                    tenant_id, email, external_id, role,
+                )
+
+        if not user["active"]:
+            raise AuthBridgeError("user is deactivated")
+
+        try:
+            # The IdP is the source of truth: refresh email and role on every login.
+            await conn.execute(
+                "UPDATE users SET external_id = $2, email = $3, role = $4 WHERE id = $1",
+                user["id"], external_id, email, role,
+            )
+        except asyncpg.UniqueViolationError:
+            raise AuthBridgeError("email already belongs to another user") from None
+
+    return Principal(
+        user_id=str(user["id"]),
+        tenant_id=str(tenant_id),
+        email=email,
+        role=role,
+        scopes=ROLE_SCOPES[role],
+    )

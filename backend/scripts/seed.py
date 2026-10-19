@@ -13,10 +13,10 @@ from app.config import settings
 
 SEED_DIR = Path(__file__).resolve().parents[1] / "seed"
 
-# Folder name -> (tenant name, IdP type, email domain)
+# Folder name -> (tenant name, IdP type, email domain, IdP issuer)
 TENANTS = {
-    "acme": ("Acme Corp", "okta_oidc", "acme.example"),
-    "globex": ("Globex", "entra_saml", "globex.example"),
+    "acme": ("Acme Corp", "okta_oidc", "acme.example", settings.okta_issuer.rstrip("/") or None),
+    "globex": ("Globex", "entra_saml", "globex.example", None),  # set in Step 8
 }
 
 ROLES = ("employee", "hr_manager", "admin")
@@ -36,14 +36,16 @@ async def main() -> None:
     conn = await asyncpg.connect(settings.database_url)
     try:
         async with conn.transaction():
-            for folder, (name, idp_type, domain) in TENANTS.items():
+            for folder, (name, idp_type, domain, issuer) in TENANTS.items():
                 tenant_id = await conn.fetchval(
                     """
-                    INSERT INTO tenants (name, idp_type) VALUES ($1, $2)
-                    ON CONFLICT (name) DO UPDATE SET idp_type = EXCLUDED.idp_type
+                    INSERT INTO tenants (name, idp_type, idp_issuer) VALUES ($1, $2, $3)
+                    ON CONFLICT (name) DO UPDATE SET
+                        idp_type = EXCLUDED.idp_type,
+                        idp_issuer = COALESCE(EXCLUDED.idp_issuer, tenants.idp_issuer)
                     RETURNING id
                     """,
-                    name, idp_type,
+                    name, idp_type, issuer,
                 )
 
                 # Placeholder users. Okta/Entra (and later SCIM) will supply real ones.

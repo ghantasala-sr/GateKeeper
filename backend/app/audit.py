@@ -1,4 +1,4 @@
-"""Write-only audit log (Step 18). See migrations/008_audit.sql.
+"""Write-only audit log. See migrations/008_audit.sql.
 
 The app role can INSERT but never read, update, or delete. Entries are written
 under the tenant's RLS context, so a request can only log for its own tenant.

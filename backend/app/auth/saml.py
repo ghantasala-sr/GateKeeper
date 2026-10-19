@@ -1,4 +1,4 @@
-"""Globex SAML login using python3-saml (Step 8).
+"""Globex SAML login using python3-saml.
 
 Flow: /auth/saml/login -> IdP (Keycloak locally, Microsoft Entra ID in real life)
 -> browser POSTs a signed assertion to /auth/saml/acs -> Principal -> access token.

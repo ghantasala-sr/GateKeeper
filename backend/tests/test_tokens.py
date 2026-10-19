@@ -1,4 +1,4 @@
-"""Step 7: Gatekeeper access tokens and scopes, against the real app and database.
+"""Gatekeeper access tokens and scopes, against the real app and database.
 
 Needs Postgres running and seeded. The chat model is replaced with a stub.
 """
@@ -94,7 +94,7 @@ def sign_with(key, claims: dict, kid: str | None = None) -> str:
     return jwt.encode(claims, key, algorithm="RS256", headers={"kid": kid or tokens.jwks()["keys"][0]["kid"]})
 
 
-# ---------- the README's "done when" checks ----------
+# ---------- 401 vs 403: who you are vs what you may do ----------
 
 def test_no_token_is_401(client):
     resp = chat(client)

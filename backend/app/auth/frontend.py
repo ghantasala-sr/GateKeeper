@@ -1,4 +1,4 @@
-"""Hand a finished login back to the frontend (Step 19).
+"""Hand a finished login back to the frontend.
 
 A login started from the frontend (`/auth/.../login?next=app`) ends with a
 redirect to FRONTEND_URL carrying the access token in the URL *fragment*

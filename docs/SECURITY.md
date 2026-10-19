@@ -116,7 +116,7 @@ runs inside the requesting user's RLS context.
 - Vector search uses an HNSW index with pgvector iterative scans, so filtering
   by RLS doesn't starve results (`tests/test_search_quality.py`).
 
-Evidence: `tests/test_injection.py` sends the README's three attack prompts
+Evidence: `tests/test_injection.py` sends the three attack prompts
 through the real `/chat` endpoint as the Acme employee, with a scripted
 "compromised" model that searches for Globex data, stuffs Globex's tenant ID
 into tool arguments, and puts SQL in its query. Result: only Acme public

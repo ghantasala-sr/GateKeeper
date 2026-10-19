@@ -1,4 +1,4 @@
-"""Step 5: the authlib OIDC flow, tested against a fake Okta.
+"""The authlib OIDC flow, tested against a fake Okta.
 
 These run the real /auth/okta routes end to end, then check that authlib
 rejects the same bad tokens the hand-written version rejected.

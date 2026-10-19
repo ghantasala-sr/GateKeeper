@@ -1,9 +1,9 @@
--- Audit log (Step 18): who did what, and which data they received.
+-- Audit log: who did what, and which data they received.
 --
 -- The app can only INSERT. It can't read, change, or delete entries, so even a
 -- compromised app can't cover its tracks. Reading is for the owner/operators.
 --
--- user_id is optional (unlike the README) so refused logins are recorded too,
+-- user_id is optional so refused logins are recorded too,
 -- e.g. "someone keeps trying to log in to Acme with no Gatekeeper group".
 -- `detail` says why or how.
 CREATE TABLE audit_log (

@@ -1,4 +1,4 @@
-"""Step 17: the full access matrix, for every tenant x role x classification.
+"""The full access matrix, for every tenant x role x classification.
 
 Each case is checked at three layers, all as the real app role (gatekeeper_app):
   1. the documents table   2. the chunks table   3. the agent's search tool.

@@ -1,4 +1,4 @@
-"""Step 9: the running app connects as a limited role that cannot change the schema.
+"""The running app connects as a limited role that cannot change the schema.
 
 Needs Postgres running with migrations applied.
 """

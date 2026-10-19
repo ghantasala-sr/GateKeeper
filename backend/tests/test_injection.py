@@ -1,4 +1,4 @@
-"""Step 14: prompt injection can't leak data, because the database decides what's retrieved.
+"""Prompt injection can't leak data, because the database decides what's retrieved.
 
 These go through the real /chat endpoint with a real access token for the
 Acme employee. Claude is replaced by a scripted "compromised" model that does

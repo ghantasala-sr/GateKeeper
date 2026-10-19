@@ -1,4 +1,4 @@
-"""Step 4 reference: the hand-written OIDC flow (learning/oidc_by_hand.py), tested against a fake Okta."""
+"""Reference implementation: the hand-written OIDC flow (learning/oidc_by_hand.py), tested against a fake Okta."""
 
 import base64
 import hashlib

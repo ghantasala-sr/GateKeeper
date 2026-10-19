@@ -1,4 +1,4 @@
--- SCIM provisioning (Step 15).
+-- SCIM provisioning.
 
 -- Each tenant's IdP gets its own SCIM bearer token. Only a SHA-256 hash is
 -- stored; the token itself is shown once by scripts/create_scim_token.py.

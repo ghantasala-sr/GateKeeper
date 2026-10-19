@@ -1,4 +1,4 @@
-"""Step 10: Postgres row-level security keeps each company's rows separate.
+"""Postgres row-level security keeps each company's rows separate.
 
 Runs as the real app role (gatekeeper_app). Needs Postgres migrated, seeded, and ingested.
 Uses the admin role wherever full counts are expected; role rules are tested in test_rls_role.py.
@@ -135,7 +135,7 @@ def test_cannot_update_another_tenants_user():
     run(test)
 
 
-# ---------- the leak from Step 3, closed ----------
+# ---------- the cross-tenant salary leak, closed ----------
 
 @pytest.mark.parametrize("tenant, other_prefix", [("Acme Corp", "GLOBEX-"), ("Globex", "ACME-")])
 def test_salary_search_returns_only_own_tenant(tenant, other_prefix):

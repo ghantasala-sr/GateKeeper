@@ -1,4 +1,4 @@
--- Company separation enforced by Postgres itself (Step 10).
+-- Company separation enforced by Postgres itself.
 --
 -- Each request sets app.tenant_id for its transaction (app/db.py). Every query
 -- on these tables then gets an invisible "WHERE tenant_id = <that tenant>".

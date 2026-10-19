@@ -1,6 +1,6 @@
-"""The auth bridge: turn any verified login into one standard Principal (Step 6).
+"""The auth bridge: turn any verified login into one standard Principal.
 
-Okta (OIDC) and, later, Microsoft (SAML) describe users differently. Everything
+Okta (OIDC) and SAML IdPs (Keycloak, Microsoft Entra ID) describe users differently. Everything
 after login only ever sees a Principal.
 """
 
@@ -124,7 +124,7 @@ async def _upsert_user(conn: asyncpg.Connection, tenant_id, *, external_id: str,
         )
         if user is None:
             # First login. Adopt a pre-created row with this email (seeded now,
-            # SCIM-provisioned later), but never one already linked to someone else.
+            # SCIM-provisioned), but never one already linked to someone else.
             existing = await conn.fetchrow(
                 "SELECT id, active, external_id FROM users WHERE tenant_id = $1 AND lower(email) = $2 FOR UPDATE",
                 tenant_id, email,

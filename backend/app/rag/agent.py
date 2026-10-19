@@ -1,4 +1,4 @@
-"""A LangGraph agent that searches documents with exactly the user's permissions (Step 13).
+"""A LangGraph agent that searches documents with exactly the user's permissions.
 
 The graph: call_model -> (tool_use?) -> run_tools -> call_model -> ... -> END.
 

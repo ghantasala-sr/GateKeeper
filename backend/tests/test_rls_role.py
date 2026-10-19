@@ -1,4 +1,4 @@
-"""Step 11: row-level security role rules inside each tenant.
+"""Row-level security role rules inside each tenant.
 
 Runs as the real app role (gatekeeper_app). Needs Postgres migrated, seeded, and ingested.
 """

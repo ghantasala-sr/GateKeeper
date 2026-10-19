@@ -15,6 +15,6 @@ ALTER ROLE gatekeeper_app NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBY
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO gatekeeper_app;
 
--- Read-only documents; users can be created/updated at login (and by SCIM later).
+-- Read-only documents; users can be created/updated at login and by SCIM.
 GRANT SELECT ON tenants, documents, chunks TO gatekeeper_app;
 GRANT SELECT, INSERT, UPDATE ON users TO gatekeeper_app;

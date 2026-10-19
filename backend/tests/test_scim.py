@@ -1,4 +1,4 @@
-"""Steps 15-16: SCIM provisioning and instant lockout, against the real app and database.
+"""SCIM provisioning and instant lockout, against the real app and database.
 
 Requests use the shapes Okta's "SCIM 2.0 Test App" sends. Each tenant gets a
 throwaway SCIM token for the test; the real tokens are restored afterwards.
@@ -214,7 +214,7 @@ def test_patch_rejects_unknown_paths(client, tokens, created):
         assert resp.status_code == 400, path
 
 
-# ---------- Step 16: the firing test ----------
+# ---------- the firing test: deactivation blocks the next request ----------
 
 def test_deactivation_blocks_chat_immediately(client, tokens, created, monkeypatch, tmp_path):
     async def fake_run_agent(principal, question, trace=None):

@@ -1,4 +1,4 @@
-"""Step 19: what the frontend relies on — login redirects, /me, and CORS."""
+"""What the frontend relies on — login redirects, /me, and CORS."""
 
 import re
 from urllib.parse import parse_qs, urlparse

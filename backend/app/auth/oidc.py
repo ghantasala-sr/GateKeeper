@@ -1,4 +1,4 @@
-"""Okta OIDC login using authlib (Step 5).
+"""Okta OIDC login using authlib.
 
 Same flow and checks as learning/oidc_by_hand.py, but authlib handles PKCE,
 state, nonce, discovery, JWKS (with refetch on key rotation), and ID token

@@ -1,4 +1,4 @@
-"""Step 8: Globex SAML login, tested against a fake IdP that signs its own assertions.
+"""Globex SAML login, tested against a fake IdP that signs its own assertions.
 
 Each attack is a real, correctly-formed SAML Response with one thing wrong.
 """

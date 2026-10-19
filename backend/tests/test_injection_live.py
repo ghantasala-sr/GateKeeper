@@ -1,4 +1,4 @@
-"""Step 14, live: the README's three injection prompts against REAL Claude.
+"""Live: the three injection prompts against REAL Claude.
 
 Opt-in because it costs money (3 questions, low effort, at most a few cents):
     RUN_LIVE=1 .venv/bin/python -m pytest tests/test_injection_live.py -s

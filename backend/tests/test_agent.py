@@ -1,4 +1,4 @@
-"""Step 13: the agent's tool searches with exactly the user's permissions.
+"""The agent's tool searches with exactly the user's permissions.
 
 The tool runs against the real database as gatekeeper_app. Claude is replaced
 by a scripted fake so tests can make it misbehave on purpose.

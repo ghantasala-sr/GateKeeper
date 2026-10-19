@@ -1,4 +1,4 @@
-"""Step 6: the auth bridge, against the real database.
+"""The auth bridge, against the real database.
 
 Needs Postgres running and seeded (docker compose up; python -m scripts.seed).
 The bridge runs as the limited gatekeeper_app role, like the real app, inside a
@@ -137,7 +137,7 @@ def test_missing_email_is_refused():
     run_in_rollback(test)
 
 
-# ---------- SAML (Step 8) ----------
+# ---------- SAML ----------
 
 from app.auth.bridge import principal_from_saml, role_from_app_roles  # noqa: E402
 

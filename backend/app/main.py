@@ -118,7 +118,7 @@ async def chat(req: ChatRequest, request: Request,
     if not settings.anthropic_api_key:
         raise HTTPException(503, "Chat model is not configured; set ANTHROPIC_API_KEY in .env")
     try:
-        # The agent searches as this principal; RLS limits what its tool can see (Steps 10-13).
+        # The agent searches as this principal; RLS limits what its tool can see.
         text, chunks = await run_agent(principal, req.question, trace=trace)
     except anthropic.AuthenticationError:
         raise HTTPException(503, "Chat model rejected the API key; check ANTHROPIC_API_KEY in .env")

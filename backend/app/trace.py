@@ -1,8 +1,8 @@
 """Per-request trace of what retrieval actually fetched.
 
 `allowed` re-checks each chunk in Python, independently of RLS, and only
-*labels* it for the log. Nothing here filters anything. Since Step 11,
-`forbidden_retrieved` should always be 0; anything else means the database
+*labels* it for the log. Nothing here filters anything. With row-level security in
+place, `forbidden_retrieved` should always be 0; anything else means the database
 handed the model data it shouldn't have.
 """
 

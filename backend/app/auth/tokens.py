@@ -1,4 +1,4 @@
-"""Gatekeeper's own access tokens (Step 7).
+"""Gatekeeper's own access tokens.
 
 After login, the browser gets a short-lived RS256 JWT that we sign ourselves.
 Every protected request presents it as `Authorization: Bearer <token>`.
@@ -62,7 +62,7 @@ def issue_access_token(principal: Principal) -> str:
 
 
 def login_response(principal: Principal) -> dict:
-    """What every login (OIDC or SAML) returns. Until the frontend exists, it's copied into curl."""
+    """What every login (OIDC or SAML) returns as JSON. Frontend logins get it via auth/frontend.py."""
     return {
         "access_token": issue_access_token(principal),
         "token_type": "Bearer",

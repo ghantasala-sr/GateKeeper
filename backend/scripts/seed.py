@@ -49,7 +49,7 @@ async def main() -> None:
                     name, idp_type, issuer,
                 )
 
-                # Placeholder users. Okta/Entra (and later SCIM) will supply real ones.
+                # Seed users. Each IdP login (or SCIM) links to these rows by email.
                 for role in ROLES:
                     await conn.execute(
                         """

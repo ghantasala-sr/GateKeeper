@@ -1,4 +1,4 @@
-"""Step 18: the audit log records logins (and refusals), chats, denials, and SCIM changes,
+"""The audit log records logins (and refusals), chats, denials, and SCIM changes,
 and the app can only ever add to it."""
 
 import asyncio
@@ -71,7 +71,7 @@ def test_app_cannot_write_another_tenants_log():
         asyncio.run(run())
 
 
-# ---------- README "done when": the injection attempt is on record, with no Globex data ----------
+# ---------- the injection attempt is on record, with no Globex data ----------
 
 def test_injection_chat_is_audited_with_only_acme_chunks(client, env, monkeypatch):  # noqa: F811
     monkeypatch.setattr(agent, "client", compromised_model(env["globex"]))

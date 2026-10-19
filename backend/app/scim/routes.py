@@ -1,4 +1,4 @@
-"""SCIM 2.0 user provisioning (RFC 7643/7644), called by the tenant's IdP (Step 15).
+"""SCIM 2.0 user provisioning (RFC 7643/7644), called by the tenant's IdP.
 
 Okta creates users when they're assigned to Gatekeeper, updates them, and
 deactivates them (PATCH active=false) when they're unassigned or fired.

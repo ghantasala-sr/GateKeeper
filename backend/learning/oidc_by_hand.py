@@ -1,7 +1,7 @@
-"""Okta OIDC login, written by hand with only httpx and PyJWT (Step 4). REFERENCE ONLY.
+"""Okta OIDC login, written by hand with only httpx and PyJWT. REFERENCE ONLY.
 
 Flow: /auth/okta/login -> Okta -> /auth/okta/callback -> verified ID token claims.
-The app uses app/auth/oidc.py (authlib) since Step 5. This file is not mounted;
+The app uses app/auth/oidc.py (authlib). This file is not mounted;
 it is kept to show what the library does for you, and its tests still run.
 """
 
@@ -214,5 +214,5 @@ async def callback(request: Request, code: str | None = None, state: str | None 
         raise HTTPException(401, "ID token failed validation")
 
     logger.info("okta login verified: sub=%s email=%s groups=%s", claims["sub"], claims.get("email"), claims.get("groups"))
-    # Step 6 turns these claims into a Principal; for now just show what was verified.
+    # The real app turns these claims into a Principal (app/auth/bridge.py); this just shows them.
     return {"sub": claims["sub"], "email": claims.get("email"), "groups": claims.get("groups", [])}

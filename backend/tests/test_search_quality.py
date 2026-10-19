@@ -1,4 +1,4 @@
-"""Step 12: filtered vector search still returns enough results.
+"""Filtered vector search still returns enough results.
 
 Simulates a large table: forces the HNSW index and a small candidate list
 (ef_search), which is what makes RLS filtering leave too few rows at scale.
@@ -35,7 +35,7 @@ def as_acme(role: str, test):
 
 
 def test_without_iterative_scan_filtering_starves_results():
-    # The problem the README warns about, reproduced.
+    # The problem iterative scans solve, reproduced.
     async def test(conn):
         q = to_pgvector(embed([QUESTION])[0])
         rows = await conn.fetch("SELECT id FROM chunks ORDER BY embedding <=> $1::vector LIMIT 5", q)

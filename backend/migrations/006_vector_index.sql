@@ -1,4 +1,4 @@
--- Approximate nearest-neighbour index for vector search (Step 12).
+-- Approximate nearest-neighbour index for vector search.
 -- Cosine distance, matching the <=> operator in app/rag/search.py.
 --
 -- With RLS, the index finds the nearest chunks across ALL rows first, and the

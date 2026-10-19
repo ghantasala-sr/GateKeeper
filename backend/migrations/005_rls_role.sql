@@ -1,12 +1,12 @@
--- Role rules inside a tenant (Step 11).
+-- Role rules inside a tenant.
 --
 -- Policies are PERMISSIVE by default: a row passes if ANY permissive policy
 -- allows it. A RESTRICTIVE policy must ALSO pass. So a row is visible only if
 --     tenant_isolation (004)  AND  role_access (this file).
 --
 -- app.role is set per transaction from the verified access token (app/db.py).
--- Unlike the README's version, an unset or unknown role sees NOTHING, not even
--- public documents: a request that forgot its role should fail closed.
+-- An unset or unknown role sees NOTHING, not even public documents: a request
+-- that forgot its role should fail closed.
 
 CREATE POLICY role_access ON chunks
     AS RESTRICTIVE

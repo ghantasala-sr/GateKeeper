@@ -724,7 +724,7 @@ Copy this into a GitHub issue and tick items off as you go.
 
 **Phase 4: Lifecycle and Proof**
 - [x] Step 15: SCIM with Okta
-- [ ] Step 16: Instant lockout
+- [x] Step 16: Instant lockout
 - [ ] Step 17: Full test matrix passes
 - [ ] Step 18: Audit log
 - [ ] Step 19: Frontend

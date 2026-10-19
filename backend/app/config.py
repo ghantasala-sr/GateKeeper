@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
 
     database_url: str
+    anthropic_api_key: str = ""
+    chat_model: str = "claude-opus-5-5"
 
 
 settings = Settings()

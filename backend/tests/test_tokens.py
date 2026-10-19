@@ -30,9 +30,9 @@ def client():
 def stub_chat_model(monkeypatch, tmp_path):
     monkeypatch.setattr(main.trace, "LOG_FILE", tmp_path / "trace.jsonl")  # keep the demo trace clean
 
-    async def fake_answer(question, chunks):
-        return "stub answer"
-    monkeypatch.setattr(main, "answer", fake_answer)
+    async def fake_run_agent(principal, question):
+        return "stub answer", []
+    monkeypatch.setattr(main, "run_agent", fake_run_agent)
     monkeypatch.setattr(main.settings, "anthropic_api_key", "stub")
 
 

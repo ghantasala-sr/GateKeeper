@@ -9,10 +9,9 @@ from starlette.middleware.sessions import SessionMiddleware
 from app import db, trace
 from app.auth import oidc, saml, tokens
 from app.auth.bridge import Principal
-from app.chat import answer
 from app.config import settings
 from app.rag.embeddings import embed
-from app.rag.search import search
+from app.rag.agent import run_agent
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s %(message)s")
 
@@ -74,14 +73,13 @@ async def chat(req: ChatRequest, principal: Principal = Depends(tokens.require_s
     # Who is asking now comes only from the verified access token.
     async with db.run_as(principal) as conn:
         tenant_name = await conn.fetchval("SELECT name FROM tenants WHERE id = $1::uuid", principal.tenant_id)
-        user = {"email": principal.email, "role": principal.role, "tenant": tenant_name}
-        # RLS limits search to chunks this tenant and role may see (Steps 10-12).
-        chunks = await search(conn, req.question)
+    user = {"email": principal.email, "role": principal.role, "tenant": tenant_name}
 
     if not settings.anthropic_api_key:
         raise HTTPException(503, "Chat model is not configured; set ANTHROPIC_API_KEY in .env")
     try:
-        text = await answer(req.question, chunks)
+        # The agent searches as this principal; RLS limits what its tool can see (Steps 10-13).
+        text, chunks = await run_agent(principal, req.question)
     except anthropic.AuthenticationError:
         raise HTTPException(503, "Chat model rejected the API key; check ANTHROPIC_API_KEY in .env")
     except anthropic.RateLimitError:

@@ -719,7 +719,7 @@ Copy this into a GitHub issue and tick items off as you go.
 - [x] Step 10: Company separation (RLS)
 - [x] Step 11: Role rules (RLS)
 - [x] Step 12: Secure AI search
-- [ ] Step 13: Agent acts as user
+- [x] Step 13: Agent acts as user
 - [ ] Step 14: Trick-attempt tests pass
 
 **Phase 4: Lifecycle and Proof**

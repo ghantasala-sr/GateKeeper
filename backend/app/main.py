@@ -2,12 +2,13 @@ import logging
 from contextlib import asynccontextmanager
 
 import anthropic
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import db, trace
-from app.auth import oidc
+from app.auth import oidc, tokens
+from app.auth.bridge import Principal
 from app.chat import answer
 from app.config import settings
 from app.rag.embeddings import embed
@@ -38,8 +39,6 @@ app.include_router(oidc.router)
 
 
 class ChatRequest(BaseModel):
-    # INSECURE ON PURPOSE: until login exists (Step 4+), the caller just says who they are.
-    user_email: str
     question: str
 
 
@@ -61,20 +60,18 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/.well-known/jwks.json")
+def jwks() -> dict:
+    return tokens.jwks()
+
+
 @app.post("/chat")
-async def chat(req: ChatRequest) -> ChatResponse:
+async def chat(req: ChatRequest, principal: Principal = Depends(tokens.require_scope("docs:read"))) -> ChatResponse:
+    # Who is asking now comes only from the verified access token.
     async with db.get_pool().acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            SELECT u.email, u.role, t.name AS tenant
-            FROM users u JOIN tenants t ON t.id = u.tenant_id
-            WHERE u.email = $1 AND u.active
-            """,
-            req.user_email,
-        )
-        if row is None:
-            raise HTTPException(404, "Unknown or inactive user")
-        user = dict(row)
+        tenant_name = await conn.fetchval("SELECT name FROM tenants WHERE id = $1::uuid", principal.tenant_id)
+        user = {"email": principal.email, "role": principal.role, "tenant": tenant_name}
+        # Search is STILL unfiltered (Step 3 leak). Phase 3 fixes that.
         chunks = await search(conn, req.question)
 
     if not settings.anthropic_api_key:
@@ -94,3 +91,18 @@ async def chat(req: ChatRequest) -> ChatResponse:
         chunks=[ChunkOut(**{k: r[k] for k in ("reference", "tenant", "classification", "allowed")}) for r in t["retrieved"]],
         forbidden_retrieved=t["forbidden_retrieved"],
     )
+
+
+@app.get("/admin/stats")
+async def admin_stats(principal: Principal = Depends(tokens.require_scope("docs:admin"))) -> dict:
+    """Test-only route to prove scope checks. Counts the admin's own tenant only."""
+    async with db.get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT (SELECT count(*) FROM documents WHERE tenant_id = $1::uuid) AS documents,
+                   (SELECT count(*) FROM chunks    WHERE tenant_id = $1::uuid) AS chunks,
+                   (SELECT count(*) FROM users     WHERE tenant_id = $1::uuid) AS users
+            """,
+            principal.tenant_id,
+        )
+    return {"tenant_id": principal.tenant_id, **dict(row)}

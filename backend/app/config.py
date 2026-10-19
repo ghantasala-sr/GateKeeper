@@ -20,5 +20,10 @@ class Settings(BaseSettings):
 
     session_secret: str
 
+    token_signing_key_b64: str
+    token_issuer: str = "http://localhost:8000"
+    token_audience: str = "gatekeeper-api"
+    token_ttl_seconds: int = 900  # 15 minutes
+
 
 settings = Settings()

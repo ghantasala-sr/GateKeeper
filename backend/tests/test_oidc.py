@@ -22,6 +22,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.auth import oidc
 from app.auth.bridge import AuthBridgeError, Principal
+from app.auth.tokens import verify_access_token
 
 ISSUER = "https://fake-okta.example/oauth2/default"
 CLIENT_ID = "test-client"
@@ -143,13 +144,17 @@ def finish_login(client, state: str, code: str = "good-code"):
     return client.get("/auth/okta/callback", params={"code": code, "state": state})
 
 
-def test_full_login_returns_principal(okta):
+def test_full_login_returns_access_token(okta):
     resp = finish_login(okta, start_login(okta))
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {
+    body = resp.json()
+    assert body["principal"] == {
         "user_id": "user-1", "tenant_id": "tenant-1", "email": "hr.manager@acme.example",
         "role": "hr_manager", "scopes": ["docs:read"],
     }
+    assert body["token_type"] == "Bearer" and body["expires_in"] == 900
+    claims = verify_access_token(body["access_token"])
+    assert (claims["sub"], claims["tenant_id"], claims["role"], claims["scope"]) == ("user-1", "tenant-1", "hr_manager", "docs:read")
     # The bridge only ever sees claims that passed validation.
     assert okta.fake["bridged_claims"]["iss"] == ISSUER
     assert okta.fake["bridged_claims"]["groups"] == ["gk-hr-manager"]

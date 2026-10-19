@@ -13,5 +13,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     chat_model: str = "claude-opus-5-5"
 
+    okta_issuer: str = ""
+    okta_client_id: str = ""
+    okta_client_secret: str = ""
+    okta_redirect_uri: str = "http://localhost:8000/auth/okta/callback"
+
 
 settings = Settings()

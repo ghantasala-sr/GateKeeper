@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from app import db, trace
+from app.auth import oidc
 from app.chat import answer
 from app.config import settings
 from app.rag.embeddings import embed
@@ -23,6 +24,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Gatekeeper", lifespan=lifespan)
+app.include_router(oidc.router)
 
 
 class ChatRequest(BaseModel):

@@ -1,6 +1,6 @@
 """Load the fake tenants, users, and documents from backend/seed/.
 
-Safe to re-run. Runs as the database owner (DATABASE_URL).
+Safe to re-run. Runs as the database owner (MIGRATION_DATABASE_URL).
 Usage: python -m scripts.seed
 """
 
@@ -34,7 +34,7 @@ def parse_front_matter(text: str) -> tuple[dict[str, str], str]:
 
 
 async def main() -> None:
-    conn = await asyncpg.connect(settings.database_url)
+    conn = await asyncpg.connect(settings.migration_database_url)
     try:
         async with conn.transaction():
             for folder, (name, idp_type, domain, issuer) in TENANTS.items():

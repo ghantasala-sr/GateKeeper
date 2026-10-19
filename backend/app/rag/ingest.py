@@ -1,6 +1,6 @@
 """Split seed documents into chunks, embed them, and store them in `chunks`.
 
-Re-running replaces all chunks. Runs as the database owner (DATABASE_URL).
+Re-running replaces all chunks. Runs as the database owner (MIGRATION_DATABASE_URL).
 Run `python -m scripts.seed` first. Usage: python -m app.rag.ingest
 """
 
@@ -29,7 +29,7 @@ def split_sections(title: str, body: str) -> list[str]:
 
 
 async def main() -> None:
-    conn = await asyncpg.connect(settings.database_url)
+    conn = await asyncpg.connect(settings.migration_database_url)
     try:
         async with conn.transaction():
             await conn.execute("DELETE FROM chunks")

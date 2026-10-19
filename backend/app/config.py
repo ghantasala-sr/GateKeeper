@@ -9,7 +9,9 @@ ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
 
-    database_url: str
+    migration_database_url: str  # owner: migrations, seed, ingest ONLY
+    app_database_url: str        # gatekeeper_app: the running app
+    app_db_password: str = ""
     anthropic_api_key: str = ""
     chat_model: str = "claude-opus-5-5"
 

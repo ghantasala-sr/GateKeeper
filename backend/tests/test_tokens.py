@@ -8,6 +8,7 @@ import json
 import time
 import uuid
 
+import asyncpg
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -42,29 +43,33 @@ def acme_user(client):
 
     def make(role: str) -> Principal:
         async def insert():
-            async with main.db.get_pool().acquire() as conn:
+            conn = await asyncpg.connect(settings.migration_database_url)
+            try:
                 tenant_id = await conn.fetchval("SELECT id FROM tenants WHERE name = 'Acme Corp'")
                 user_id = await conn.fetchval(
                     "INSERT INTO users (tenant_id, email, role) VALUES ($1, $2, $3) RETURNING id",
                     tenant_id, f"test-{uuid.uuid4()}@acme.example", role,
                 )
                 return str(tenant_id), str(user_id)
+            finally:
+                await conn.close()
         tenant_id, user_id = client.portal.call(insert)
         created.append(user_id)
         return Principal(user_id, tenant_id, "test@acme.example", role, ROLE_SCOPES[role])
 
     yield make
 
-    async def cleanup():
-        async with main.db.get_pool().acquire() as conn:
-            await conn.execute("DELETE FROM users WHERE id = ANY($1::uuid[])", created)
-    client.portal.call(cleanup)
+    db(client, "DELETE FROM users WHERE id = ANY($1::uuid[])", created)
 
 
 def db(client, sql: str, *args):
+    """Run setup/teardown SQL as the owner (the app role can't delete users)."""
     async def run():
-        async with main.db.get_pool().acquire() as conn:
+        conn = await asyncpg.connect(settings.migration_database_url)
+        try:
             return await conn.execute(sql, *args)
+        finally:
+            await conn.close()
     return client.portal.call(run)
 
 

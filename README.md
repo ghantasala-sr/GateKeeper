@@ -715,7 +715,7 @@ Copy this into a GitHub issue and tick items off as you go.
 - [x] Step 8: Microsoft SAML login (Keycloak stands in for Entra locally)
 
 **Phase 3: Locking Down the Data**
-- [ ] Step 9: Safe database user
+- [x] Step 9: Safe database user
 - [ ] Step 10: Company separation (RLS)
 - [ ] Step 11: Role rules (RLS)
 - [ ] Step 12: Secure AI search

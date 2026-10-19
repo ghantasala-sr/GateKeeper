@@ -57,7 +57,7 @@ def client():
 
 @pytest.fixture
 def env(monkeypatch, tmp_path):
-    monkeypatch.setattr(main.trace, "LOG_FILE", tmp_path / "trace.jsonl")
+    monkeypatch.setattr(main.trace_log, "LOG_FILE", tmp_path / "trace.jsonl")
     monkeypatch.setattr(main.settings, "anthropic_api_key", "stub")
     data = ids()
     data["token"] = issue_access_token(data["employee"])
@@ -124,3 +124,32 @@ def test_sql_in_the_query_does_not_change_the_tenant(client, env, monkeypatch):
                        headers={"Authorization": f"Bearer {env['token']}"}).json()
     assert {c["tenant"] for c in body["chunks"]} == {"Acme Corp"}
     assert body["forbidden_retrieved"] == 0
+
+
+def test_trace_shows_each_security_layer(client, env, monkeypatch):
+    """The inspector's trace reflects what actually happened, and carries no forbidden data."""
+    monkeypatch.setattr(agent, "client", compromised_model(env["globex"]))
+    body = client.post("/chat", json={"question": INJECTIONS[2].format(globex=env["globex"])},
+                       headers={"Authorization": f"Bearer {env['token']}"}).json()
+    steps = body["trace"]["steps"]
+    layers = [s["layer"] for s in steps]
+    assert layers[:3] == ["auth", "database", "rls"] and layers[-2:] == ["audit", "check"]
+    assert layers.count("model") == 3 and layers.count("tool") == 5
+
+    auth, database, rls = steps[0], steps[1], steps[2]
+    assert auth["details"]["claims"]["role"] == "employee"
+    assert database["details"]["active"] and database["details"]["role_matches_token"]
+    assert rls["details"]["documents_this_connection_can_see"] == {"public": 4}
+    assert rls["details"]["other_tenants_documents_visible"] == 0
+
+    tools = [s for s in steps if s["layer"] == "tool"]
+    stuffed = next(s for s in tools if "tenant_id" in s["details"]["model_asked_for"])
+    assert stuffed["ok"] is False and "only" in stuffed["details"]["rejected_because"]
+    for s in tools:
+        assert all(r["classification"] == "public" for r in s["details"]["returned"])
+
+    assert steps[-1]["details"]["forbidden_retrieved"] == 0 and steps[-1]["ok"]
+    dumped = json.dumps(body["trace"])
+    for marker in ("$170,000", "$68.3", "Halcyon", "$150,000", "Pinecrest", "GLOBEX-"):
+        assert marker not in dumped
+    assert all(s["ms"] >= 0 for s in steps) and body["trace"]["total_ms"] >= steps[-1]["start_ms"]

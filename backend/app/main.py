@@ -2,12 +2,13 @@ import logging
 from contextlib import asynccontextmanager
 
 import anthropic
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
-from app import audit, db, trace
+from app import audit, db
+from app import trace as trace_log
 from app.auth import oidc, saml, tokens
 from app.auth.bridge import Principal
 from app.scim import routes as scim
@@ -69,6 +70,7 @@ class ChatResponse(BaseModel):
     answer: str
     chunks: list[ChunkOut]
     forbidden_retrieved: int
+    trace: dict | None = None  # what the backend did, for the frontend's inspector
 
 
 @app.get("/health")
@@ -91,17 +93,33 @@ async def me(principal: Principal = Depends(tokens.require_scope("docs:read"))) 
 
 
 @app.post("/chat")
-async def chat(req: ChatRequest, principal: Principal = Depends(tokens.require_scope("docs:read"))) -> ChatResponse:
+async def chat(req: ChatRequest, request: Request,
+               principal: Principal = Depends(tokens.require_scope("docs:read"))) -> ChatResponse:
+    trace = request.state.trace
     # Who is asking now comes only from the verified access token.
-    async with db.run_as(principal) as conn:
-        tenant_name = await conn.fetchval("SELECT name FROM tenants WHERE id = $1::uuid", principal.tenant_id)
+    with trace.step("Row-level security context set", "rls") as t:
+        async with db.run_as(principal) as conn:
+            tenant_name = await conn.fetchval("SELECT name FROM tenants WHERE id = $1::uuid", principal.tenant_id)
+            visible = await conn.fetch(
+                "SELECT classification, count(*) AS n FROM documents GROUP BY 1 ORDER BY 1")
+            other_tenants = await conn.fetchval("SELECT count(*) FROM documents WHERE tenant_id <> $1::uuid",
+                                                principal.tenant_id)
+        t["details"] = {
+            "set_config": {"app.tenant_id": f"{principal.tenant_id} ({tenant_name})", "app.role": principal.role},
+            "scope": "SET LOCAL: this transaction only, never leaks to the next request on a pooled connection",
+            "db_role": "gatekeeper_app (not owner, not superuser, no BYPASSRLS)",
+            "documents_this_connection_can_see": {r["classification"]: r["n"] for r in visible},
+            "other_tenants_documents_visible": other_tenants,
+            "policies": ["tenant_isolation: tenant_id = app.tenant_id",
+                         "role_access (RESTRICTIVE): classification allowed for app.role"],
+        }
     user = {"email": principal.email, "role": principal.role, "tenant": tenant_name}
 
     if not settings.anthropic_api_key:
         raise HTTPException(503, "Chat model is not configured; set ANTHROPIC_API_KEY in .env")
     try:
         # The agent searches as this principal; RLS limits what its tool can see (Steps 10-13).
-        text, chunks = await run_agent(principal, req.question)
+        text, chunks = await run_agent(principal, req.question, trace=trace)
     except anthropic.AuthenticationError:
         raise HTTPException(503, "Chat model rejected the API key; check ANTHROPIC_API_KEY in .env")
     except anthropic.RateLimitError:
@@ -109,14 +127,23 @@ async def chat(req: ChatRequest, principal: Principal = Depends(tokens.require_s
     except anthropic.APIConnectionError:
         raise HTTPException(503, "Could not reach the chat model")
 
-    async with db.run_as(principal) as conn:
-        await audit.record(conn, tenant_id=principal.tenant_id, user_id=principal.user_id, action="chat",
-                           question=req.question, chunk_ids=list(dict.fromkeys(c.id for c in chunks)))
-    t = trace.record(user, req.question, chunks, text)
+    chunk_ids = list(dict.fromkeys(c.id for c in chunks))
+    with trace.step("Audit log entry written", "audit") as t:
+        async with db.run_as(principal) as conn:
+            await audit.record(conn, tenant_id=principal.tenant_id, user_id=principal.user_id, action="chat",
+                               question=req.question, chunk_ids=chunk_ids)
+        t["details"] = {"table": "audit_log", "action": "chat", "chunk_ids_recorded": len(chunk_ids),
+                        "app_privileges": "INSERT only: it can't read, change, or delete the log"}
+    with trace.step("Independent leak check", "check") as t:
+        logged = trace_log.record(user, req.question, chunks, text)
+        t["ok"] = logged["forbidden_retrieved"] == 0
+        t["details"] = {"method": "re-checks every retrieved chunk in Python, separately from RLS",
+                        "chunks_checked": len(chunks), "forbidden_retrieved": logged["forbidden_retrieved"]}
     return ChatResponse(
         answer=text,
-        chunks=[ChunkOut(**{k: r[k] for k in ("reference", "tenant", "classification", "allowed")}) for r in t["retrieved"]],
-        forbidden_retrieved=t["forbidden_retrieved"],
+        chunks=[ChunkOut(**{k: r[k] for k in ("reference", "tenant", "classification", "allowed")}) for r in logged["retrieved"]],
+        forbidden_retrieved=logged["forbidden_retrieved"],
+        trace=trace.to_dict(),
     )
 
 

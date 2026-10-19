@@ -217,11 +217,11 @@ def test_patch_rejects_unknown_paths(client, tokens, created):
 # ---------- Step 16: the firing test ----------
 
 def test_deactivation_blocks_chat_immediately(client, tokens, created, monkeypatch, tmp_path):
-    async def fake_run_agent(principal, question):
+    async def fake_run_agent(principal, question, trace=None):
         return "ok", []
     monkeypatch.setattr(main, "run_agent", fake_run_agent)
     monkeypatch.setattr(main.settings, "anthropic_api_key", "stub")
-    monkeypatch.setattr(main.trace, "LOG_FILE", tmp_path / "trace.jsonl")
+    monkeypatch.setattr(main.trace_log, "LOG_FILE", tmp_path / "trace.jsonl")
 
     user = create(client, tokens["Acme Corp"], created)
     [row] = owner("SELECT tenant_id FROM users WHERE id = $1::uuid", user["id"], fetch=True)

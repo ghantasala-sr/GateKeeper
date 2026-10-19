@@ -10,6 +10,7 @@ the user had searched directly. There is no "master key" connection.
 """
 
 import operator
+import time
 from typing import Annotated, Any, TypedDict
 
 import anthropic
@@ -19,6 +20,7 @@ from app import db
 from app.auth.bridge import Principal
 from app.config import settings
 from app.rag.search import Chunk, search
+from app.tracing import RequestTrace
 
 MAX_TOOL_ROUNDS = 3
 
@@ -48,6 +50,7 @@ client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key or None)  #
 
 class AgentState(TypedDict):
     principal: Principal                                 # set once by run_agent(); nodes only read it
+    trace: RequestTrace | None                           # optional; for the frontend's inspector
     messages: Annotated[list[dict[str, Any]], operator.add]  # append-only conversation with Claude
     retrieved: Annotated[list[Chunk], operator.add]      # every chunk any tool call returned
     stop_reason: str
@@ -65,14 +68,49 @@ async def search_documents(principal: Principal, tool_input: Any) -> tuple[list[
         return await search(conn, tool_input["query"]), None
 
 
+def _short(tool_input: Any) -> str:
+    q = tool_input.get("query") if isinstance(tool_input, dict) else None
+    text = repr(q) if isinstance(q, str) else str(tool_input)
+    return text if len(text) <= 48 else text[:45] + "…'"
+
+
 def format_results(chunks: list[Chunk]) -> str:
     if not chunks:
         return "No matching documents."
     return "\n\n".join(f'<chunk reference="{c.reference}">\n{c.content}\n</chunk>' for c in chunks)
 
 
+def _trace_step(state: AgentState, name: str, layer: str):
+    trace = state.get("trace")
+    return trace.step(name, layer) if trace else _NullStep()
+
+
+class _NullStep:
+    def __enter__(self):
+        return {"details": {}}
+
+    def __exit__(self, *exc):
+        return False
+
+
 async def call_model(state: AgentState) -> dict:
-    response = await client.beta.messages.create(
+    n = sum(1 for m in state["messages"] if m["role"] == "assistant") + 1
+    with _trace_step(state, f"Model call {n}", "model") as t:
+        response = await _create(state)
+        usage = getattr(response, "usage", None)
+        t["details"] = {
+            "model": settings.chat_model,
+            "stop_reason": response.stop_reason,
+            "tool_calls_requested": [{"tool": b.name, "input": b.input} for b in response.content if b.type == "tool_use"],
+            "input_tokens": getattr(usage, "input_tokens", None),
+            "output_tokens": getattr(usage, "output_tokens", None),
+            "sees": "only the question and chunks returned by earlier tool calls; never the user's identity",
+        }
+    return _model_update(response)
+
+
+async def _create(state: AgentState):
+    return await client.beta.messages.create(
         model=settings.chat_model,
         max_tokens=16000,
         system=SYSTEM_PROMPT,
@@ -82,6 +120,9 @@ async def call_model(state: AgentState) -> dict:
         fallbacks="default",
         messages=state["messages"],
     )
+
+
+def _model_update(response) -> dict:
     update: dict = {
         # Echo content back unchanged (thinking and fallback blocks included).
         "messages": [{"role": "assistant", "content": response.content}],
@@ -99,10 +140,21 @@ async def run_tools(state: AgentState) -> dict:
     tool_uses = [b for b in state["messages"][-1]["content"] if b.type == "tool_use"]
     results, retrieved = [], []
     for block in tool_uses:
-        if block.name != SEARCH_TOOL["name"]:
-            chunks, error = [], f"Unknown tool {block.name!r}."
-        else:
-            chunks, error = await search_documents(principal, block.input)
+        with _trace_step(state, f"{block.name}({_short(block.input)})", "tool") as t:
+            if block.name != SEARCH_TOOL["name"]:
+                chunks, error = [], f"Unknown tool {block.name!r}."
+            else:
+                chunks, error = await search_documents(principal, block.input)
+            t["ok"] = error is None
+            t["details"] = {
+                "model_asked_for": block.input,
+                "accepted": error is None,
+                **({"rejected_because": error} if error else {}),
+                "ran_as": f"{principal.role} @ tenant {principal.tenant_id[:8]}… (db.run_as, from the token, not the model)",
+                "rls": "tenant_isolation AND role_access policies filtered rows inside Postgres",
+                "returned": [{"ref": c.reference, "classification": c.classification, "distance": round(c.distance, 3)}
+                             for c in chunks],
+            }
         retrieved.extend(chunks)
         result = {"type": "tool_result", "tool_use_id": block.id, "content": error or format_results(chunks)}
         if error:
@@ -132,12 +184,13 @@ def build_graph():
 agent = build_graph()
 
 
-async def run_agent(principal: Principal, question: str) -> tuple[str, list[Chunk]]:
+async def run_agent(principal: Principal, question: str, trace: RequestTrace | None = None) -> tuple[str, list[Chunk]]:
     """Answer `question` as `principal`. Returns (answer, every chunk the tools retrieved)."""
     if not isinstance(principal, Principal):
         raise TypeError("run_agent needs a verified Principal")
     final = await agent.ainvoke({
         "principal": principal,
+        "trace": trace,
         "messages": [{"role": "user", "content": question}],
         "retrieved": [],
         "stop_reason": "",

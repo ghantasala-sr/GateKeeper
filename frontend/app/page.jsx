@@ -2,6 +2,8 @@
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
+import Inspector from "./inspector";
+
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const LEVELS = [
@@ -175,6 +177,8 @@ export default function Home() {
   const [messages, setMessages] = useState([]);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
+  const [selected, setSelected] = useState(null); // index of the answer shown in the inspector
+  const [inspectorOpen, setInspectorOpen] = useState(false); // small screens only
   const endRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -184,6 +188,7 @@ export default function Home() {
     setExpiresAt(null);
     setMe(null);
     setMessages([]);
+    setSelected(null);
     setNotice(notice || null);
   }, []);
 
@@ -215,6 +220,12 @@ export default function Home() {
       .catch(() => logOut({ title: "Unavailable", text: "Can't reach the Gatekeeper API." }));
   }, [token, logOut]);
 
+  // Show each new answer's trace in the inspector as it arrives.
+  useEffect(() => {
+    const last = messages.length - 1;
+    if (last >= 0 && messages[last].trace) setSelected(last);
+  }, [messages]);
+
   useEffect(() => {
     // Braces matter: scrollIntoView can return a Promise, and an effect may only return a cleanup function.
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -241,7 +252,7 @@ export default function Home() {
       if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
       const sources = [];
       for (const c of body.chunks) if (!sources.some((s) => s.ref === c.reference)) sources.push({ ref: c.reference, level: c.classification });
-      setMessages((m) => [...m, { from: "desk", text: body.answer, sources, withheld: body.forbidden_retrieved }]);
+      setMessages((m) => [...m, { from: "desk", text: body.answer, sources, withheld: body.forbidden_retrieved, trace: body.trace, question: q }]);
     } catch (err) {
       setMessages((m) => [...m, { from: "desk", text: `Something went wrong: ${err.message}`, error: true }]);
     } finally {
@@ -251,6 +262,8 @@ export default function Home() {
   }
 
   if (!token) return <Login notice={notice} />;
+
+  const shown = selected !== null ? messages[selected] : null;
 
   return (
     <div className={`desk ${tenantClass(me?.tenant)}`}>
@@ -264,9 +277,12 @@ export default function Home() {
             <span className="lanyard-idp">{IDP_LABEL[me.idp_type] || me.idp_type}</span>
           </div>
         )}
+        <button className="inspector-toggle" onClick={() => setInspectorOpen(true)}>Under the hood</button>
         <button className="signout" onClick={() => logOut()}>Sign out</button>
       </header>
 
+      <div className="desk-body">
+      <div className="desk-main">
       <main className="ledger" aria-live="polite">
         {messages.length === 0 && (
           <section className="welcome">
@@ -290,9 +306,12 @@ export default function Home() {
               <p>{m.text}</p>
             </div>
           ) : (
-            <article key={i} className={`entry memo${m.error ? " memo-error" : ""}`}>
+            <article key={i} className={`entry memo${m.error ? " memo-error" : ""}${selected === i ? " selected" : ""}`}>
               <span className="entry-label">A</span>
-              <div className="memo-body">
+              <div className="memo-body" onClick={() => m.trace && setSelected(i)}
+                   role={m.trace ? "button" : undefined} tabIndex={m.trace ? 0 : undefined}
+                   onKeyDown={(e) => m.trace && (e.key === "Enter" || e.key === " ") && setSelected(i)}
+                   aria-label={m.trace ? "Show this answer's trace" : undefined}>
                 <Answer text={m.text} />
                 {m.sources && (
                   <footer className="memo-foot">
@@ -339,6 +358,13 @@ export default function Home() {
         />
         <button type="submit" disabled={busy || !question.trim()}>Ask</button>
       </form>
+      </div>
+
+      <div className={`inspector-wrap${inspectorOpen ? " open" : ""}`}>
+        <Inspector entry={shown} number={selected === null ? 0 : messages.slice(0, selected + 1).filter((m) => m.trace).length}
+                   onClose={inspectorOpen ? () => setInspectorOpen(false) : null} />
+      </div>
+      </div>
     </div>
   );
 }

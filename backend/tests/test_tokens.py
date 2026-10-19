@@ -28,9 +28,9 @@ def client():
 
 @pytest.fixture(autouse=True)
 def stub_chat_model(monkeypatch, tmp_path):
-    monkeypatch.setattr(main.trace, "LOG_FILE", tmp_path / "trace.jsonl")  # keep the demo trace clean
+    monkeypatch.setattr(main.trace_log, "LOG_FILE", tmp_path / "trace.jsonl")  # keep the demo trace clean
 
-    async def fake_run_agent(principal, question):
+    async def fake_run_agent(principal, question, trace=None):
         return "stub answer", []
     monkeypatch.setattr(main, "run_agent", fake_run_agent)
     monkeypatch.setattr(main.settings, "anthropic_api_key", "stub")

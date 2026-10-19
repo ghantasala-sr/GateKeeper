@@ -15,12 +15,13 @@ from functools import lru_cache
 
 import jwt
 from cryptography.hazmat.primitives import serialization
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app import audit, db
 from app.auth.bridge import Principal
 from app.config import settings
+from app.tracing import RequestTrace
 
 ALGORITHM = "RS256"
 
@@ -97,19 +98,38 @@ def verify_access_token(token: str) -> dict:
 def require_scope(scope: str):
     """FastAPI dependency: a valid token for an active user that carries `scope`."""
 
-    async def dependency(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> Principal:
+    async def dependency(request: Request, creds: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> Principal:
+        trace = request.state.trace = RequestTrace()
         if creds is None:
             raise HTTPException(401, "Missing bearer token", headers={"WWW-Authenticate": "Bearer"})
-        claims = verify_access_token(creds.credentials)
+        with trace.step("Access token verified", "auth") as t:
+            claims = verify_access_token(creds.credentials)
+            t["details"] = {
+                "algorithm": ALGORITHM, "key_id": jwt.get_unverified_header(creds.credentials)["kid"][:12] + "…",
+                "issuer": claims["iss"], "audience": claims["aud"],
+                "expires_in_s": int(claims["exp"] - time.time()),
+                "claims": {"sub": claims["sub"], "tenant_id": claims["tenant_id"], "role": claims["role"],
+                           "scope": claims["scope"]},
+                "checks": "signature (JWKS key), iss, aud, exp, required claims",
+            }
 
         # Check the database on EVERY request. A valid signature only proves the
         # token was true 15 minutes ago; this catches deactivation immediately.
         # `users` is under RLS, so scope the lookup to the token's (signed) tenant first.
-        async with db.run_as_tenant(claims["tenant_id"]) as conn:
-            user = await conn.fetchrow(
-                "SELECT email, role, active FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid",
-                claims["sub"], claims["tenant_id"],
-            )
+        with trace.step("User still active in the database", "database") as t:
+            async with db.run_as_tenant(claims["tenant_id"]) as conn:
+                user = await conn.fetchrow(
+                    "SELECT email, role, active FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid",
+                    claims["sub"], claims["tenant_id"],
+                )
+            t["details"] = {
+                "query": "SELECT email, role, active FROM users WHERE id = $1 (under RLS: own tenant only)",
+                "found": user is not None,
+                "active": bool(user and user["active"]),
+                "role_matches_token": bool(user and user["role"] == claims["role"]),
+                "why": "Catches IdP deactivation (SCIM) on the very next request, not when the token expires.",
+            }
+            t["ok"] = bool(user and user["active"] and user["role"] == claims["role"])
         scopes = tuple(claims["scope"].split())
         if user is None or not user["active"]:
             denial = _unauthorized("User is not active")

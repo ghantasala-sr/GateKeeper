@@ -728,7 +728,7 @@ Copy this into a GitHub issue and tick items off as you go.
 - [x] Step 17: Full test matrix passes
 - [x] Step 18: Audit log
 - [x] Step 19: Frontend
-- [ ] Step 20: SECURITY.md + demo video
+- [ ] Step 20: SECURITY.md ✅ ([docs/SECURITY.md](docs/SECURITY.md)) + demo video (script: [docs/DEMO.md](docs/DEMO.md); run guide: [docs/RUNNING.md](docs/RUNNING.md))
 
 ---
 

@@ -708,7 +708,7 @@ Copy this into a GitHub issue and tick items off as you go.
 - [x] Step 3: Insecure AI chat (leak screenshot saved)
 
 **Phase 2: Login and the Auth Bridge**
-- [ ] Step 4: Okta login by hand
+- [x] Step 4: Okta login by hand
 - [ ] Step 5: Switched to authlib
 - [ ] Step 6: Auth bridge + Principal
 - [ ] Step 7: Own access tokens + scopes

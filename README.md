@@ -705,7 +705,7 @@ Copy this into a GitHub issue and tick items off as you go.
 **Phase 1: Foundations**
 - [x] Step 1: Project setup
 - [x] Step 2: Tables and fake data
-- [ ] Step 3: Insecure AI chat (leak screenshot saved)
+- [x] Step 3: Insecure AI chat (leak screenshot saved)
 
 **Phase 2: Login and the Auth Bridge**
 - [ ] Step 4: Okta login by hand

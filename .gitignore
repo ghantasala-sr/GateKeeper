@@ -22,3 +22,6 @@ node_modules/
 .DS_Store
 .idea/
 .vscode/
+
+# Local trace logs
+backend/logs/

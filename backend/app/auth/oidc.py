@@ -13,7 +13,7 @@ from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, HTTPException, Request
 from joserfc.errors import JoseError
 
-from app import db
+from app import audit, db
 from app.auth.bridge import AuthBridgeError, Principal, principal_from_okta
 from app.auth.tokens import login_response
 from app.config import settings
@@ -50,8 +50,17 @@ def okta():
 
 
 async def principal_for(claims: dict) -> Principal:
+    """Bridge a verified login to a Principal, and audit the outcome."""
     async with db.get_pool().acquire() as conn:
-        return await principal_from_okta(conn, claims)
+        try:
+            principal = await principal_from_okta(conn, claims)
+        except AuthBridgeError as e:
+            if e.tenant_id:  # unknown issuer: no tenant to log under (app log only)
+                await audit.record_as_tenant(e.tenant_id, action="login_refused", user_id=e.user_id,
+                                             detail=f"okta_oidc: {e}")
+            raise
+    await audit.record_as_tenant(principal.tenant_id, action="login", user_id=principal.user_id, detail="okta_oidc")
+    return principal
 
 
 @router.get("/login")

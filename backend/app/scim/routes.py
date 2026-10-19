@@ -17,7 +17,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
-from app import db
+from app import audit, db
 
 logger = logging.getLogger("gatekeeper.scim")
 router = APIRouter(prefix="/scim/v2")
@@ -134,9 +134,12 @@ async def fetch_user(conn, user_id: str) -> asyncpg.Record:
     return row
 
 
-async def update_user(conn, user_id, fields: dict) -> asyncpg.Record:
+async def update_user(conn, tenant_id: str, user_id, fields: dict) -> asyncpg.Record:
     if not fields:
         return await fetch_user(conn, str(user_id))
+    await audit.record(conn, tenant_id=tenant_id, user_id=str(user_id),
+                       action="scim_deactivate" if fields.get("active") is False else "scim_update",
+                       detail="changed: " + ", ".join(sorted(fields)))
     cols = list(fields)
     sets = ", ".join(f"{c} = ${i + 2}" for i, c in enumerate(cols))
     try:
@@ -198,6 +201,8 @@ async def create_user(request: Request, tenant_id: str = Depends(scim_tenant)):
             )
         except asyncpg.UniqueViolationError:
             raise ScimError(409, "User already exists", "uniqueness")
+        await audit.record(conn, tenant_id=tenant_id, user_id=str(row["id"]), action="scim_create",
+                           detail=f"userName={row['email']}")
     logger.info("scim create: tenant=%s user=%s email=%s", tenant_id, row["id"], row["email"])
     return scim_response(to_scim(row, request), 201)
 
@@ -207,7 +212,7 @@ async def replace_user(user_id: str, request: Request, tenant_id: str = Depends(
     fields = user_fields(await json_body(request))
     async with db.run_as_tenant(tenant_id) as conn:
         row = await fetch_user(conn, user_id)
-        row = await update_user(conn, row["id"], fields)
+        row = await update_user(conn, tenant_id, row["id"], fields)
     logger.info("scim replace: tenant=%s user=%s active=%s", tenant_id, row["id"], row["active"])
     return scim_response(to_scim(row, request))
 
@@ -234,7 +239,7 @@ async def patch_user(user_id: str, request: Request, tenant_id: str = Depends(sc
             raise ScimError(400, f"Unsupported path {path!r}", "invalidPath")
     async with db.run_as_tenant(tenant_id) as conn:
         row = await fetch_user(conn, user_id)
-        row = await update_user(conn, row["id"], fields)
+        row = await update_user(conn, tenant_id, row["id"], fields)
     if fields.get("active") is False:
         logger.warning("scim deactivate: tenant=%s user=%s email=%s", tenant_id, row["id"], row["email"])
     return scim_response(to_scim(row, request))

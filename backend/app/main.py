@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
-from app import db, trace
+from app import audit, db, trace
 from app.auth import oidc, saml, tokens
 from app.auth.bridge import Principal
 from app.scim import routes as scim
@@ -90,6 +90,9 @@ async def chat(req: ChatRequest, principal: Principal = Depends(tokens.require_s
     except anthropic.APIConnectionError:
         raise HTTPException(503, "Could not reach the chat model")
 
+    async with db.run_as(principal) as conn:
+        await audit.record(conn, tenant_id=principal.tenant_id, user_id=principal.user_id, action="chat",
+                           question=req.question, chunk_ids=list(dict.fromkeys(c.id for c in chunks)))
     t = trace.record(user, req.question, chunks, text)
     return ChatResponse(
         answer=text,

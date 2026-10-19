@@ -15,7 +15,7 @@ from onelogin.saml2.auth import OneLogin_Saml2_Auth
 from onelogin.saml2.idp_metadata_parser import OneLogin_Saml2_IdPMetadataParser
 from onelogin.saml2.settings import OneLogin_Saml2_Settings
 
-from app import db
+from app import audit, db
 from app.auth.bridge import AuthBridgeError, Principal, principal_from_saml
 from app.auth.tokens import login_response
 from app.config import settings
@@ -82,8 +82,17 @@ async def _request_data(request: Request) -> dict:
 
 
 async def principal_for(issuer: str, name_id: str, attributes: dict) -> Principal:
+    """Bridge a verified login to a Principal, and audit the outcome."""
     async with db.get_pool().acquire() as conn:
-        return await principal_from_saml(conn, issuer=issuer, name_id=name_id, attributes=attributes)
+        try:
+            principal = await principal_from_saml(conn, issuer=issuer, name_id=name_id, attributes=attributes)
+        except AuthBridgeError as e:
+            if e.tenant_id:  # unknown issuer: no tenant to log under (app log only)
+                await audit.record_as_tenant(e.tenant_id, action="login_refused", user_id=e.user_id,
+                                             detail=f"saml: {e}")
+            raise
+    await audit.record_as_tenant(principal.tenant_id, action="login", user_id=principal.user_id, detail="saml")
+    return principal
 
 
 @router.get("/metadata")

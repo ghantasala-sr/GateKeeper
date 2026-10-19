@@ -726,7 +726,7 @@ Copy this into a GitHub issue and tick items off as you go.
 - [x] Step 15: SCIM with Okta
 - [x] Step 16: Instant lockout
 - [x] Step 17: Full test matrix passes
-- [ ] Step 18: Audit log
+- [x] Step 18: Audit log
 - [ ] Step 19: Frontend
 - [ ] Step 20: SECURITY.md + demo video
 

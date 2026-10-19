@@ -21,7 +21,14 @@ class Principal:
 
 
 class AuthBridgeError(Exception):
-    """The login was valid, but it doesn't map to a Gatekeeper user."""
+    """The login was valid, but it doesn't map to a Gatekeeper user.
+
+    tenant_id/user_id are filled in when known, so the refusal can be audited.
+    """
+
+    def __init__(self, message: str, tenant_id: str | None = None, user_id: str | None = None):
+        super().__init__(message)
+        self.tenant_id, self.user_id = tenant_id, user_id
 
 
 ROLE_FROM_OKTA_GROUP = {
@@ -72,11 +79,15 @@ async def principal_from_okta(conn: asyncpg.Connection, claims: dict) -> Princip
     if tenant_id is None:
         raise AuthBridgeError(f"no tenant is configured for issuer {claims['iss']}")
 
-    role = role_from_groups(claims.get("groups") or [])
-    email = (claims.get("email") or "").strip().lower()
-    if not email:
-        raise AuthBridgeError("ID token has no email")
-    return await _upsert_user(conn, tenant_id, external_id=claims["sub"], email=email, role=role)
+    try:
+        role = role_from_groups(claims.get("groups") or [])
+        email = (claims.get("email") or "").strip().lower()
+        if not email:
+            raise AuthBridgeError("ID token has no email")
+        return await _upsert_user(conn, tenant_id, external_id=claims["sub"], email=email, role=role)
+    except AuthBridgeError as e:
+        e.tenant_id = e.tenant_id or str(tenant_id)
+        raise
 
 
 async def principal_from_saml(conn: asyncpg.Connection, *, issuer: str, name_id: str,
@@ -88,15 +99,18 @@ async def principal_from_saml(conn: asyncpg.Connection, *, issuer: str, name_id:
     )
     if tenant_id is None:
         raise AuthBridgeError(f"no tenant is configured for issuer {issuer}")
-    if not name_id:
-        raise AuthBridgeError("assertion has no NameID")
-
-    role = role_from_app_roles([v for a in SAML_ROLE_ATTRIBUTES for v in attributes.get(a, [])])
-    emails = [v for a in SAML_EMAIL_ATTRIBUTES for v in attributes.get(a, [])]
-    email = (emails[0] if emails else "").strip().lower()
-    if not email:
-        raise AuthBridgeError("assertion has no email")
-    return await _upsert_user(conn, tenant_id, external_id=name_id, email=email, role=role)
+    try:
+        if not name_id:
+            raise AuthBridgeError("assertion has no NameID")
+        role = role_from_app_roles([v for a in SAML_ROLE_ATTRIBUTES for v in attributes.get(a, [])])
+        emails = [v for a in SAML_EMAIL_ATTRIBUTES for v in attributes.get(a, [])]
+        email = (emails[0] if emails else "").strip().lower()
+        if not email:
+            raise AuthBridgeError("assertion has no email")
+        return await _upsert_user(conn, tenant_id, external_id=name_id, email=email, role=role)
+    except AuthBridgeError as e:
+        e.tenant_id = e.tenant_id or str(tenant_id)
+        raise
 
 
 async def _upsert_user(conn: asyncpg.Connection, tenant_id, *, external_id: str, email: str, role: str) -> Principal:
@@ -116,7 +130,7 @@ async def _upsert_user(conn: asyncpg.Connection, tenant_id, *, external_id: str,
                 tenant_id, email,
             )
             if existing is not None and existing["external_id"] is not None:
-                raise AuthBridgeError("email already belongs to a different IdP user")
+                raise AuthBridgeError("email already belongs to a different IdP user", user_id=str(existing["id"]))
             if existing is not None:
                 user = existing
             else:
@@ -126,7 +140,7 @@ async def _upsert_user(conn: asyncpg.Connection, tenant_id, *, external_id: str,
                 )
 
         if not user["active"]:
-            raise AuthBridgeError("user is deactivated")
+            raise AuthBridgeError("user is deactivated", user_id=str(user["id"]))
 
         try:
             # The IdP is the source of truth: refresh email and role on every login.

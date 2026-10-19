@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives import serialization
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app import db
+from app import audit, db
 from app.auth.bridge import Principal
 from app.config import settings
 
@@ -110,17 +110,23 @@ def require_scope(scope: str):
                 "SELECT email, role, active FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid",
                 claims["sub"], claims["tenant_id"],
             )
-        if user is None or not user["active"]:
-            raise _unauthorized("User is not active")
-        if user["role"] != claims["role"]:
-            # Role changed since login (e.g. demoted). Make them log in again.
-            raise _unauthorized("Role changed; log in again")
-
         scopes = tuple(claims["scope"].split())
-        if scope not in scopes:
+        if user is None or not user["active"]:
+            denial = _unauthorized("User is not active")
+        elif user["role"] != claims["role"]:
+            # Role changed since login (e.g. demoted). Make them log in again.
+            denial = _unauthorized("Role changed; log in again")
+        elif scope not in scopes:
             # 403 = "I know who you are, and the answer is no."
-            raise HTTPException(403, f"Missing scope {scope}",
-                                headers={"WWW-Authenticate": f'Bearer error="insufficient_scope", scope="{scope}"'})
+            denial = HTTPException(403, f"Missing scope {scope}",
+                                   headers={"WWW-Authenticate": f'Bearer error="insufficient_scope", scope="{scope}"'})
+        else:
+            denial = None
+        if denial is not None:
+            # The token's signature was valid, so its tenant is trustworthy enough to log under.
+            await audit.record_as_tenant(claims["tenant_id"], action="request_denied", user_id=claims["sub"],
+                                         detail=f"{denial.status_code} {denial.detail}")
+            raise denial
         return Principal(
             user_id=claims["sub"], tenant_id=claims["tenant_id"], email=user["email"],
             role=claims["role"], scopes=scopes,

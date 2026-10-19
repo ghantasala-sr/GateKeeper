@@ -709,7 +709,7 @@ Copy this into a GitHub issue and tick items off as you go.
 
 **Phase 2: Login and the Auth Bridge**
 - [x] Step 4: Okta login by hand
-- [ ] Step 5: Switched to authlib
+- [x] Step 5: Switched to authlib
 - [ ] Step 6: Auth bridge + Principal
 - [ ] Step 7: Own access tokens + scopes
 - [ ] Step 8: Microsoft SAML login

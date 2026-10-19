@@ -7,7 +7,6 @@ set by SessionMiddleware (see app/main.py).
 """
 
 import logging
-from dataclasses import asdict
 
 from authlib.integrations.base_client import OAuthError
 from authlib.integrations.starlette_client import OAuth
@@ -16,7 +15,7 @@ from joserfc.errors import JoseError
 
 from app import db
 from app.auth.bridge import AuthBridgeError, Principal, principal_from_okta
-from app.auth.tokens import issue_access_token
+from app.auth.tokens import login_response
 from app.config import settings
 
 logger = logging.getLogger("gatekeeper.auth")
@@ -92,10 +91,4 @@ async def callback(request: Request) -> dict:
         raise HTTPException(403, f"Login refused: {e}")
 
     logger.info("okta login: user=%s tenant=%s role=%s", principal.user_id, principal.tenant_id, principal.role)
-    # Until the frontend exists (Step 19), hand the token back as JSON to copy into curl.
-    return {
-        "access_token": issue_access_token(principal),
-        "token_type": "Bearer",
-        "expires_in": settings.token_ttl_seconds,
-        "principal": asdict(principal),
-    }
+    return login_response(principal)

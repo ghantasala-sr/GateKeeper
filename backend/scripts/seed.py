@@ -16,7 +16,8 @@ SEED_DIR = Path(__file__).resolve().parents[1] / "seed"
 # Folder name -> (tenant name, IdP type, email domain, IdP issuer)
 TENANTS = {
     "acme": ("Acme Corp", "okta_oidc", "acme.example", settings.okta_issuer.rstrip("/") or None),
-    "globex": ("Globex", "entra_saml", "globex.example", None),  # set in Step 8
+    # Keycloak stands in for Microsoft Entra ID locally; both speak SAML.
+    "globex": ("Globex", "entra_saml", "globex.example", settings.saml_idp_entity_id or None),
 }
 
 ROLES = ("employee", "hr_manager", "admin")

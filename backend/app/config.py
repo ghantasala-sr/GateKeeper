@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     okta_client_secret: str = ""
     okta_redirect_uri: str = "http://localhost:8000/auth/okta/callback"
 
+    # Globex SAML. The IdP entity ID is pinned here, not trusted from metadata.
+    saml_idp_metadata_url: str = ""
+    saml_idp_entity_id: str = ""
+    saml_sp_entity_id: str = "urn:gatekeeper:globex"
+    saml_sp_acs_url: str = "http://localhost:8000/auth/saml/acs"
+
     session_secret: str
 
     token_signing_key_b64: str

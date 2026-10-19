@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import db, trace
-from app.auth import oidc, tokens
+from app.auth import oidc, saml, tokens
 from app.auth.bridge import Principal
 from app.chat import answer
 from app.config import settings
@@ -34,8 +34,12 @@ app.add_middleware(
     max_age=600,
     same_site="lax",
     https_only=settings.okta_redirect_uri.startswith("https://"),
+    # Lax still sends this cookie on the IdP's POST to /auth/saml/acs because Keycloak
+    # (localhost:8080) is the same site as us. A real Entra IdP is cross-site: that
+    # needs same_site="none" over HTTPS, or the InResponseTo check can't find the request.
 )
 app.include_router(oidc.router)
+app.include_router(saml.router)
 
 
 class ChatRequest(BaseModel):

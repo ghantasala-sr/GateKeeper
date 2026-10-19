@@ -39,11 +39,25 @@ ROLE_SCOPES = {
 }
 
 
-def role_from_groups(groups: list[str]) -> str:
-    roles = {ROLE_FROM_OKTA_GROUP[g] for g in groups if g in ROLE_FROM_OKTA_GROUP}
+def lowest_role(roles: set[str]) -> str:
     if not roles:
-        raise AuthBridgeError("user is in no Gatekeeper group")
+        raise AuthBridgeError("user has no Gatekeeper role")
     return min(roles, key=ROLE_ORDER.index)
+
+
+def role_from_groups(groups: list[str]) -> str:
+    """Okta: gk- groups."""
+    return lowest_role({ROLE_FROM_OKTA_GROUP[g] for g in groups if g in ROLE_FROM_OKTA_GROUP})
+
+
+def role_from_app_roles(values: list[str]) -> str:
+    """SAML: Entra app roles (or Keycloak roles) whose values are the role names."""
+    return lowest_role({v for v in values if v in ROLE_ORDER})
+
+
+# Where SAML IdPs put the email. Entra uses the long claim URI by default.
+SAML_EMAIL_ATTRIBUTES = ("email", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")
+SAML_ROLE_ATTRIBUTES = ("role", "http://schemas.microsoft.com/ws/2008/06/identity/claims/role")
 
 
 async def principal_from_okta(conn: asyncpg.Connection, claims: dict) -> Principal:
@@ -61,6 +75,26 @@ async def principal_from_okta(conn: asyncpg.Connection, claims: dict) -> Princip
     if not email:
         raise AuthBridgeError("ID token has no email")
     return await _upsert_user(conn, tenant_id, external_id=claims["sub"], email=email, role=role)
+
+
+async def principal_from_saml(conn: asyncpg.Connection, *, issuer: str, name_id: str,
+                              attributes: dict[str, list[str]]) -> Principal:
+    """Map a verified SAML assertion to a Principal, creating or updating the user."""
+    # `issuer` was already checked against SAML_IDP_ENTITY_ID when the signature was validated.
+    tenant_id = await conn.fetchval(
+        "SELECT id FROM tenants WHERE idp_issuer = $1 AND idp_type = 'entra_saml'", issuer
+    )
+    if tenant_id is None:
+        raise AuthBridgeError(f"no tenant is configured for issuer {issuer}")
+    if not name_id:
+        raise AuthBridgeError("assertion has no NameID")
+
+    role = role_from_app_roles([v for a in SAML_ROLE_ATTRIBUTES for v in attributes.get(a, [])])
+    emails = [v for a in SAML_EMAIL_ATTRIBUTES for v in attributes.get(a, [])]
+    email = (emails[0] if emails else "").strip().lower()
+    if not email:
+        raise AuthBridgeError("assertion has no email")
+    return await _upsert_user(conn, tenant_id, external_id=name_id, email=email, role=role)
 
 
 async def _upsert_user(conn: asyncpg.Connection, tenant_id, *, external_id: str, email: str, role: str) -> Principal:

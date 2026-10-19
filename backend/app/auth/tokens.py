@@ -10,6 +10,7 @@ import hashlib
 import json
 import time
 import uuid
+from dataclasses import asdict
 from functools import lru_cache
 
 import jwt
@@ -57,6 +58,16 @@ def issue_access_token(principal: Principal) -> str:
         "jti": str(uuid.uuid4()),
     }
     return jwt.encode(claims, private_key, algorithm=ALGORITHM, headers={"kid": public_jwk["kid"]})
+
+
+def login_response(principal: Principal) -> dict:
+    """What every login (OIDC or SAML) returns. Until the frontend exists, it's copied into curl."""
+    return {
+        "access_token": issue_access_token(principal),
+        "token_type": "Bearer",
+        "expires_in": settings.token_ttl_seconds,
+        "principal": asdict(principal),
+    }
 
 
 def _unauthorized(detail: str) -> HTTPException:

@@ -126,3 +126,64 @@ def test_missing_email_is_refused():
         with pytest.raises(AuthBridgeError, match="no email"):
             await principal_from_okta(conn, claims(email=None))
     run_in_rollback(test)
+
+
+# ---------- SAML (Step 8) ----------
+
+from app.auth.bridge import principal_from_saml, role_from_app_roles  # noqa: E402
+
+SAML_ISSUER = "https://test-saml-idp.example/globex"
+
+
+def run_in_saml_rollback(test):
+    async def main():
+        conn = await asyncpg.connect(settings.database_url)
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            tenant_id = await conn.fetchval(
+                "INSERT INTO tenants (name, idp_type, idp_issuer) VALUES ($1, 'entra_saml', $2) RETURNING id",
+                f"Test SAML Tenant {uuid.uuid4()}", SAML_ISSUER,
+            )
+            await test(conn, str(tenant_id))
+        finally:
+            await tx.rollback()
+            await conn.close()
+    asyncio.run(main())
+
+
+@pytest.mark.parametrize("values, role", [
+    (["hr_manager"], "hr_manager"),
+    (["admin", "offline_access", "default-roles-globex"], "admin"),  # Keycloak extras ignored
+    (["admin", "employee"], "employee"),                               # lowest role wins
+])
+def test_role_from_app_roles(values, role):
+    assert role_from_app_roles(values) == role
+
+
+def test_saml_login_creates_user_from_entra_style_claims():
+    async def test(conn, tenant_id):
+        p = await principal_from_saml(conn, issuer=SAML_ISSUER, name_id="G-1", attributes={
+            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress": ["Sam@Globex.example"],
+            "http://schemas.microsoft.com/ws/2008/06/identity/claims/role": ["admin"],
+        })
+        assert (p.tenant_id, p.email, p.role) == (tenant_id, "sam@globex.example", "admin")
+    run_in_saml_rollback(test)
+
+
+def test_saml_cannot_log_into_an_okta_tenant():
+    async def test(conn, tenant_id):
+        # Same issuer string, but the tenant is configured for Okta OIDC, not SAML.
+        await conn.execute("UPDATE tenants SET idp_type = 'okta_oidc' WHERE id = $1::uuid", tenant_id)
+        with pytest.raises(AuthBridgeError, match="no tenant"):
+            await principal_from_saml(conn, issuer=SAML_ISSUER, name_id="G-1",
+                                      attributes={"email": ["x@y.example"], "role": ["admin"]})
+    run_in_saml_rollback(test)
+
+
+def test_saml_without_role_is_refused():
+    async def test(conn, tenant_id):
+        with pytest.raises(AuthBridgeError, match="no Gatekeeper role"):
+            await principal_from_saml(conn, issuer=SAML_ISSUER, name_id="G-1",
+                                      attributes={"email": ["x@y.example"], "role": ["offline_access"]})
+    run_in_saml_rollback(test)

@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  devIndicators: false, // no dev badge in screenshots and demo recordings
   // The access token travels in the URL fragment after login; never leak the
   // page URL to other sites.
   async headers() {

@@ -2,6 +2,8 @@
 
 **A multi-tenant AI assistant for internal company documents, where the database (not the model) decides what each person can see.**
 
+[![CI](https://github.com/ghantasala-sr/GateKeeper/actions/workflows/ci.yml/badge.svg)](https://github.com/ghantasala-sr/GateKeeper/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%20%2B%20pgvector-4169E1?logo=postgresql&logoColor=white)
@@ -17,6 +19,12 @@ their clearance:
 | `employee` | ✓ | – | – | – |
 | `hr_manager` | ✓ | ✓ | – | – |
 | `admin` | ✓ | ✓ | ✓ | – |
+
+![A Globex HR manager's answer, with the "Under the hood" trace showing each security check](docs/images/inspector.png)
+
+<p align="center"><em>Every answer comes with the backend's own trace: the token and live user check, the row-level
+security context (here: 7 Globex documents visible, 0 from any other company), each search the model asked for,
+and what the database let through.</em></p>
 
 ---
 
@@ -42,6 +50,7 @@ their clearance:
 - [Testing](#testing)
 - [Security](#security)
 - [Limitations and roadmap](#limitations-and-roadmap)
+- [License](#license)
 
 ---
 
@@ -80,6 +89,8 @@ same questions retrieve **0** forbidden passages. What the model never receives,
   scripted prompt-injection attacks, and OIDC/SAML attack cases.
 
 ## Architecture
+
+<p align="center"><img src="docs/images/sign-in.png" alt="Sign-in page: clearance matrix and company ID cards for Okta and SAML" width="85%"></p>
 
 ### System overview
 
@@ -399,7 +410,10 @@ they're allowed to see.
 │   ├── learning/           Hand-written OIDC reference implementation
 │   └── tests/              pytest suite
 ├── frontend/               Next.js sign-in and chat UI with the security inspector
-├── docs/SECURITY.md        Security overview for a customer's security review
+├── docs/
+│   ├── SECURITY.md         Security overview for a customer's security review
+│   └── images/             README screenshots
+├── .github/workflows/      CI: backend tests on a fresh Postgres, frontend build
 ├── docker-compose.yml      PostgreSQL + pgvector, Keycloak
 └── .env.example            Every setting, with safe placeholder values
 ```
@@ -474,6 +488,9 @@ RUN_LIVE=1 .venv/bin/python -m pytest tests/test_injection_live.py -s   # 3 test
 ```
 
 The suite runs against the real, migrated and seeded database, as the real `gatekeeper_app` role.
+[CI](.github/workflows/ci.yml) runs it on every push against a fresh pgvector Postgres (migrate, seed, ingest,
+test) with throwaway credentials, and builds the frontend. The two tests that need a real Okta issuer and the
+three live-model tests are skipped there.
 
 | Area | What's proven | Tests |
 |---|---|---|
@@ -508,4 +525,6 @@ removed, token lifetime, audit trail, and testing), with pointers to the code an
 - **The chat model provider receives the passages a user is allowed to see.** Production use needs a suitable
   data-processing agreement with the provider.
 
-All company names, people and figures in `backend/seed/` are fictional.
+## License
+
+[MIT](LICENSE). All company names, people and figures in `backend/seed/` are fictional.

@@ -1,6 +1,7 @@
 """Step 10: Postgres row-level security keeps each company's rows separate.
 
 Runs as the real app role (gatekeeper_app). Needs Postgres migrated, seeded, and ingested.
+Uses the admin role wherever full counts are expected; role rules are tested in test_rls_role.py.
 """
 
 import asyncio
@@ -53,7 +54,7 @@ def test_after_a_scoped_request_the_next_unscoped_query_sees_nothing():
     # Same physical connection: first a request scoped to Acme, then a query with
     # no tenant. The setting must not linger, and '' must not crash the ::uuid cast.
     async def test(pool, tenants):
-        async with db.run_as_tenant(tenants["Acme Corp"]) as conn:
+        async with db.run_as_tenant(tenants["Acme Corp"], "admin") as conn:
             assert (await counts(conn))["chunks"] > 0
         async with pool.acquire() as conn:
             assert await conn.fetchval("SELECT current_setting('app.tenant_id', true)") == ""
@@ -74,7 +75,7 @@ def test_tenant_context_requires_a_transaction():
 @pytest.mark.parametrize("tenant", ["Acme Corp", "Globex"])
 def test_each_tenant_sees_only_its_own_rows(tenant):
     async def test(pool, tenants):
-        async with db.run_as_tenant(tenants[tenant]) as conn:
+        async with db.run_as_tenant(tenants[tenant], "admin") as conn:
             assert await counts(conn) == {"documents": 10, "chunks": 56, "users": 3}
             for table in TABLES:
                 assert await tenant_ids_visible(conn, table) == {tenants[tenant]}
@@ -83,7 +84,7 @@ def test_each_tenant_sees_only_its_own_rows(tenant):
 
 def test_asking_for_another_tenant_by_id_returns_nothing():
     async def test(pool, tenants):
-        async with db.run_as_tenant(tenants["Acme Corp"]) as conn:
+        async with db.run_as_tenant(tenants["Acme Corp"], "admin") as conn:
             for table in TABLES:
                 n = await conn.fetchval(f"SELECT count(*) FROM {table} WHERE tenant_id = $1::uuid", tenants["Globex"])
                 assert n == 0, table
@@ -94,7 +95,7 @@ def test_asking_for_another_tenant_by_id_returns_nothing():
 
 def test_unknown_tenant_sees_nothing():
     async def test(pool, tenants):
-        async with db.run_as_tenant(str(uuid.uuid4())) as conn:
+        async with db.run_as_tenant(str(uuid.uuid4()), "admin") as conn:
             assert await counts(conn) == {"documents": 0, "chunks": 0, "users": 0}
     run(test)
 

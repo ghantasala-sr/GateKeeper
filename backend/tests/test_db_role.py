@@ -41,9 +41,16 @@ def test_app_role_owns_nothing():
 
 
 def test_app_role_can_read_what_it_needs():
-    assert as_app("SELECT count(*) AS n FROM documents")[0]["n"] > 0
-    assert as_app("SELECT count(*) AS n FROM chunks")[0]["n"] > 0
-    assert as_app("SELECT count(*) AS n FROM users")[0]["n"] > 0
+    async def run():
+        conn = await asyncpg.connect(settings.app_database_url)
+        try:
+            async with conn.transaction():
+                tenant_id = await conn.fetchval("SELECT id FROM tenants WHERE name = 'Acme Corp'")
+                await db.set_tenant_context(conn, str(tenant_id))  # RLS (Step 10) needs a tenant
+                return [await conn.fetchval(f"SELECT count(*) FROM {t}") for t in ("documents", "chunks", "users")]
+        finally:
+            await conn.close()
+    assert all(n > 0 for n in asyncio.run(run()))
 
 
 @pytest.mark.parametrize("sql", [

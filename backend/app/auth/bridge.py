@@ -8,6 +8,8 @@ from dataclasses import dataclass
 
 import asyncpg
 
+from app.db import set_tenant_context
+
 
 @dataclass(frozen=True)
 class Principal:
@@ -99,6 +101,9 @@ async def principal_from_saml(conn: asyncpg.Connection, *, issuer: str, name_id:
 
 async def _upsert_user(conn: asyncpg.Connection, tenant_id, *, external_id: str, email: str, role: str) -> Principal:
     async with conn.transaction():
+        # `users` is under RLS: scope this transaction to the tenant the verified
+        # IdP issuer resolved to, before touching any user row.
+        await set_tenant_context(conn, str(tenant_id))
         user = await conn.fetchrow(
             "SELECT id, active FROM users WHERE tenant_id = $1 AND external_id = $2 FOR UPDATE",
             tenant_id, external_id,

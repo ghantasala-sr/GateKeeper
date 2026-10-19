@@ -17,7 +17,8 @@ class Chunk:
 
 
 async def search(conn: asyncpg.Connection, query: str, k: int = 5) -> list[Chunk]:
-    # INSECURE ON PURPOSE (Step 3): no tenant or role filtering at all.
+    # No tenant filter here on purpose: `conn` must come from db.run_as(), and RLS
+    # on `chunks` hides every other tenant's rows before ORDER BY/LIMIT run.
     [vector] = await asyncio.to_thread(embed, [query])
     rows = await conn.fetch(
         """

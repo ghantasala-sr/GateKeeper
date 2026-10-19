@@ -72,10 +72,10 @@ def jwks() -> dict:
 @app.post("/chat")
 async def chat(req: ChatRequest, principal: Principal = Depends(tokens.require_scope("docs:read"))) -> ChatResponse:
     # Who is asking now comes only from the verified access token.
-    async with db.get_pool().acquire() as conn:
+    async with db.run_as(principal) as conn:
         tenant_name = await conn.fetchval("SELECT name FROM tenants WHERE id = $1::uuid", principal.tenant_id)
         user = {"email": principal.email, "role": principal.role, "tenant": tenant_name}
-        # Search is STILL unfiltered (Step 3 leak). Phase 3 fixes that.
+        # RLS now limits search to the user's own tenant. Role rules come in Step 11.
         chunks = await search(conn, req.question)
 
     if not settings.anthropic_api_key:
@@ -100,7 +100,8 @@ async def chat(req: ChatRequest, principal: Principal = Depends(tokens.require_s
 @app.get("/admin/stats")
 async def admin_stats(principal: Principal = Depends(tokens.require_scope("docs:admin"))) -> dict:
     """Test-only route to prove scope checks. Counts the admin's own tenant only."""
-    async with db.get_pool().acquire() as conn:
+    async with db.run_as(principal) as conn:
+        # RLS scopes these counts; the explicit tenant filter is a second layer, not the guard.
         row = await conn.fetchrow(
             """
             SELECT (SELECT count(*) FROM documents WHERE tenant_id = $1::uuid) AS documents,

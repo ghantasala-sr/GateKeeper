@@ -104,7 +104,8 @@ def require_scope(scope: str):
 
         # Check the database on EVERY request. A valid signature only proves the
         # token was true 15 minutes ago; this catches deactivation immediately.
-        async with db.get_pool().acquire() as conn:
+        # `users` is under RLS, so scope the lookup to the token's (signed) tenant first.
+        async with db.run_as_tenant(claims["tenant_id"]) as conn:
             user = await conn.fetchrow(
                 "SELECT email, role, active FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid",
                 claims["sub"], claims["tenant_id"],

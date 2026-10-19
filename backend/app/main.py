@@ -75,13 +75,13 @@ async def chat(req: ChatRequest, principal: Principal = Depends(tokens.require_s
     async with db.run_as(principal) as conn:
         tenant_name = await conn.fetchval("SELECT name FROM tenants WHERE id = $1::uuid", principal.tenant_id)
         user = {"email": principal.email, "role": principal.role, "tenant": tenant_name}
-        # RLS now limits search to the user's own tenant. Role rules come in Step 11.
+        # RLS limits search to chunks this tenant and role may see (Steps 10-12).
         chunks = await search(conn, req.question)
 
     if not settings.anthropic_api_key:
         raise HTTPException(503, "Chat model is not configured; set ANTHROPIC_API_KEY in .env")
     try:
-        text = await answer(user, req.question, chunks)
+        text = await answer(req.question, chunks)
     except anthropic.AuthenticationError:
         raise HTTPException(503, "Chat model rejected the API key; check ANTHROPIC_API_KEY in .env")
     except anthropic.RateLimitError:

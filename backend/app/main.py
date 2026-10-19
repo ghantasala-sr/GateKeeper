@@ -9,6 +9,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app import db, trace
 from app.auth import oidc, saml, tokens
 from app.auth.bridge import Principal
+from app.scim import routes as scim
 from app.config import settings
 from app.rag.embeddings import embed
 from app.rag.agent import run_agent
@@ -39,6 +40,8 @@ app.add_middleware(
 )
 app.include_router(oidc.router)
 app.include_router(saml.router)
+app.include_router(scim.router)
+app.add_exception_handler(scim.ScimError, lambda request, e: scim.error_response(e))
 
 
 class ChatRequest(BaseModel):

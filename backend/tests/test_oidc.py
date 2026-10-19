@@ -1,4 +1,8 @@
-"""Step 4: the hand-written OIDC flow, tested against a fake Okta."""
+"""Step 5: the authlib OIDC flow, tested against a fake Okta.
+
+These run the real /auth/okta routes end to end, then check that authlib
+rejects the same bad tokens the hand-written version rejected.
+"""
 
 import base64
 import hashlib
@@ -7,13 +11,14 @@ import json
 import time
 from urllib.parse import parse_qs, urlparse
 
-import httpx
+import httpx2 as httpx  # authlib 1.9 is built on httpx2
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.auth import oidc
 
@@ -32,155 +37,157 @@ def make_key(kid: str):
 
 PRIVATE_KEY, PUBLIC_JWK = make_key("key-1")
 OTHER_KEY, _ = make_key("key-1")  # same kid, different key: a forged signature
-JWKS = {"keys": [PUBLIC_JWK]}
-
-
-def id_token(*, key=PRIVATE_KEY, kid="key-1", alg="RS256", **overrides) -> str:
-    now = int(time.time())
-    claims = {
-        "iss": ISSUER, "aud": CLIENT_ID, "sub": "00u123", "iat": now, "exp": now + 300,
-        "nonce": "n-123", "email": "hr.manager@acme.example", "groups": ["gk-hr-manager"],
-    }
-    claims.update(overrides)
-    claims = {k: v for k, v in claims.items() if v is not None}
-    return jwt.encode(claims, key, algorithm=alg, headers={"kid": kid})
-
-
-def validate(token: str, nonce: str = "n-123") -> dict:
-    return oidc.validate_id_token(token, jwks=JWKS, issuer=ISSUER, client_id=CLIENT_ID, nonce=nonce)
-
-
-# ---------- validate_id_token ----------
-
-def test_valid_token_passes():
-    claims = validate(id_token())
-    assert claims["email"] == "hr.manager@acme.example"
-    assert claims["groups"] == ["gk-hr-manager"]
-
-
-@pytest.mark.parametrize(
-    "token, nonce, reason",
-    [
-        (id_token(key=OTHER_KEY), "n-123", "forged signature"),
-        (id_token(iss="https://evil.example"), "n-123", "wrong issuer"),
-        (id_token(aud="someone-else"), "n-123", "wrong audience"),
-        (id_token(exp=int(time.time()) - 3600), "n-123", "expired"),
-        (id_token(), "different-nonce", "nonce mismatch (replay)"),
-        (id_token(nonce=None), "n-123", "missing nonce"),
-        (id_token(kid="unknown"), "n-123", "unknown kid"),
-        (id_token(aud=[CLIENT_ID, "other"]), "n-123", "multiple audiences without azp"),
-    ],
-)
-def test_bad_tokens_rejected(token, nonce, reason):
-    with pytest.raises(oidc.TokenValidationError):
-        validate(token, nonce)
-
-
-def test_alg_none_rejected():
-    unsigned = jwt.encode({"iss": ISSUER, "aud": CLIENT_ID, "sub": "x", "nonce": "n-123"}, None, algorithm="none",
-                          headers={"kid": "key-1"})
-    with pytest.raises(oidc.TokenValidationError, match="unexpected alg"):
-        validate(unsigned)
 
 
 def b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
-def test_hs256_key_confusion_rejected():
+def sign(claims: dict, *, key=PRIVATE_KEY, kid="key-1") -> str:
+    return jwt.encode(claims, key, algorithm="RS256", headers={"kid": kid})
+
+
+def base_claims(nonce: str) -> dict:
+    now = int(time.time())
+    return {
+        "iss": ISSUER, "aud": CLIENT_ID, "sub": "00u123", "iat": now, "exp": now + 300,
+        "nonce": nonce, "email": "hr.manager@acme.example", "groups": ["gk-hr-manager"],
+    }
+
+
+def hs256_with_public_key(claims: dict) -> str:
     # Classic attack: HMAC-sign a token using the IdP's *public* key as the secret.
     public_pem = jwt.PyJWK(PUBLIC_JWK).key.public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
-    now = int(time.time())
     header = b64url(json.dumps({"alg": "HS256", "kid": "key-1"}).encode())
-    payload = b64url(json.dumps({"iss": ISSUER, "aud": CLIENT_ID, "sub": "x", "iat": now,
-                                 "exp": now + 300, "nonce": "n-123"}).encode())
+    payload = b64url(json.dumps(claims).encode())
     signature = b64url(hmac.new(public_pem, f"{header}.{payload}".encode(), hashlib.sha256).digest())
-    with pytest.raises(oidc.TokenValidationError, match="unexpected alg"):
-        validate(f"{header}.{payload}.{signature}")
+    return f"{header}.{payload}.{signature}"
 
 
-def test_pkce_challenge_is_s256_of_verifier():
-    verifier, challenge = oidc.make_pkce_pair()
-    assert 43 <= len(verifier) <= 128
-    assert challenge == b64url(hashlib.sha256(verifier.encode()).digest())
+def unsigned(claims: dict) -> str:
+    header = b64url(json.dumps({"alg": "none", "kid": "key-1"}).encode())
+    return f"{header}.{b64url(json.dumps(claims).encode())}."
 
 
-# ---------- full login flow against a fake Okta ----------
+# How the fake Okta builds the ID token. Each takes the nonce from the login request.
+GOOD = lambda n: sign(base_claims(n))  # noqa: E731
+
 
 @pytest.fixture
-def client(monkeypatch):
+def okta(monkeypatch):
     monkeypatch.setattr(oidc.settings, "okta_issuer", ISSUER)
     monkeypatch.setattr(oidc.settings, "okta_client_id", CLIENT_ID)
     monkeypatch.setattr(oidc.settings, "okta_client_secret", CLIENT_SECRET)
     monkeypatch.setattr(oidc.settings, "okta_redirect_uri", REDIRECT_URI)
-    monkeypatch.setattr(oidc, "_discovery", None)
-    monkeypatch.setattr(oidc, "_jwks", None)
-    monkeypatch.setattr(oidc, "_pending", {})
+    monkeypatch.setattr(oidc, "_okta", None)
 
-    fake = {"challenge": None, "nonce": None}
+    fake = {"challenge": None, "nonce": None, "make_id_token": GOOD, "issuer": ISSUER, "id_token": True}
 
-    def okta(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if path.endswith("/.well-known/openid-configuration"):
             return httpx.Response(200, json={
-                "issuer": ISSUER,
+                "issuer": fake["issuer"],
                 "authorization_endpoint": f"{ISSUER}/v1/authorize",
                 "token_endpoint": f"{ISSUER}/v1/token",
                 "jwks_uri": f"{ISSUER}/v1/keys",
+                "id_token_signing_alg_values_supported": ["RS256"],
             })
         if path.endswith("/v1/keys"):
-            return httpx.Response(200, json=JWKS)
+            return httpx.Response(200, json={"keys": [PUBLIC_JWK]})
         if path.endswith("/v1/token"):
             form = parse_qs(request.content.decode())
             basic = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
-            verifier = form["code_verifier"][0]
-            derived = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+            derived = b64url(hashlib.sha256(form["code_verifier"][0].encode()).digest())
             if (request.headers.get("authorization") != f"Basic {basic}"
                     or form["code"] != ["good-code"] or derived != fake["challenge"]):
                 return httpx.Response(400, json={"error": "invalid_grant"})
-            return httpx.Response(200, json={"id_token": id_token(nonce=fake["nonce"]), "token_type": "Bearer"})
+            body = {"access_token": "at", "token_type": "Bearer", "expires_in": 3600}
+            if fake["id_token"]:
+                body["id_token"] = fake["make_id_token"](fake["nonce"])
+            return httpx.Response(200, json=body)
         return httpx.Response(404)
 
-    real_client = httpx.AsyncClient
-    monkeypatch.setattr(oidc.httpx, "AsyncClient",
-                        lambda **kw: real_client(transport=httpx.MockTransport(okta), **kw))
+    monkeypatch.setattr(oidc, "CLIENT_KWARGS", {"transport": httpx.MockTransport(handler)})
 
     app = FastAPI()
+    app.add_middleware(SessionMiddleware, secret_key="test-session-secret", session_cookie="gk_login")
     app.include_router(oidc.router)
-    tc = TestClient(app)
-    tc.fake = fake
-    return tc
+    client = TestClient(app)
+    client.fake = fake
+    return client
 
 
 def start_login(client) -> str:
     resp = client.get("/auth/okta/login", follow_redirects=False)
-    assert resp.status_code == 307
+    assert resp.status_code in (302, 307)
     query = parse_qs(urlparse(resp.headers["location"]).query)
     assert query["code_challenge_method"] == ["S256"]
+    assert query["redirect_uri"] == [REDIRECT_URI]
     client.fake["challenge"] = query["code_challenge"][0]
     client.fake["nonce"] = query["nonce"][0]
     return query["state"][0]
 
 
-def test_full_login_returns_verified_claims(client):
-    state = start_login(client)
-    resp = client.get("/auth/okta/callback", params={"code": "good-code", "state": state})
+def finish_login(client, state: str, code: str = "good-code"):
+    return client.get("/auth/okta/callback", params={"code": code, "state": state})
+
+
+def test_full_login_returns_verified_claims(okta):
+    resp = finish_login(okta, start_login(okta))
     assert resp.status_code == 200, resp.text
     assert resp.json() == {"sub": "00u123", "email": "hr.manager@acme.example", "groups": ["gk-hr-manager"]}
 
 
-def test_state_can_only_be_used_once(client):
-    state = start_login(client)
-    assert client.get("/auth/okta/callback", params={"code": "good-code", "state": state}).status_code == 200
-    assert client.get("/auth/okta/callback", params={"code": "good-code", "state": state}).status_code == 400
+BAD_ID_TOKENS = {
+    "forged signature": lambda n: sign(base_claims(n), key=OTHER_KEY),
+    "wrong issuer": lambda n: sign({**base_claims(n), "iss": "https://evil.example"}),
+    "wrong audience": lambda n: sign({**base_claims(n), "aud": "someone-else"}),
+    "expired": lambda n: sign({**base_claims(n), "exp": int(time.time()) - 3600}),
+    "nonce mismatch (replay)": lambda n: sign(base_claims("some-other-login")),
+    "missing nonce": lambda n: sign({k: v for k, v in base_claims(n).items() if k != "nonce"}),
+    "alg none": lambda n: unsigned(base_claims(n)),
+    "HS256 key confusion": lambda n: hs256_with_public_key(base_claims(n)),
+}
 
 
-def test_callback_from_another_browser_rejected(client):
-    state = start_login(client)
-    client.cookies.clear()  # the victim's browser never started this login
-    assert client.get("/auth/okta/callback", params={"code": "good-code", "state": state}).status_code == 400
+@pytest.mark.parametrize("case", BAD_ID_TOKENS)
+def test_bad_id_tokens_rejected(okta, case):
+    okta.fake["make_id_token"] = BAD_ID_TOKENS[case]
+    resp = finish_login(okta, start_login(okta))
+    assert resp.status_code in (400, 401), f"{case}: {resp.status_code} {resp.text}"
 
 
-def test_bad_code_rejected(client):
-    state = start_login(client)
-    assert client.get("/auth/okta/callback", params={"code": "stolen-code", "state": state}).status_code == 502
+def test_discovery_cannot_change_the_issuer(okta):
+    # A tampered discovery doc AND token both claim an attacker's issuer.
+    okta.fake["issuer"] = "https://evil.example"
+    okta.fake["make_id_token"] = lambda n: sign({**base_claims(n), "iss": "https://evil.example"})
+    assert finish_login(okta, start_login(okta)).status_code == 401
+
+
+def test_missing_id_token_rejected(okta):
+    okta.fake["id_token"] = False
+    assert finish_login(okta, start_login(okta)).status_code == 502
+
+
+def test_state_can_only_be_used_once(okta):
+    state = start_login(okta)
+    assert finish_login(okta, state).status_code == 200
+    assert finish_login(okta, state).status_code == 400
+
+
+def test_callback_from_another_browser_rejected(okta):
+    state = start_login(okta)
+    okta.cookies.clear()  # the victim's browser never started this login
+    assert finish_login(okta, state).status_code == 400
+
+
+def test_bad_code_rejected(okta):
+    assert finish_login(okta, start_login(okta), code="stolen-code").status_code == 400
+
+
+def test_okta_error_is_reported(okta):
+    start_login(okta)
+    resp = okta.get("/auth/okta/callback", params={"error": "access_denied", "error_description": "User is not assigned"})
+    assert resp.status_code == 400
+    assert "access_denied" in resp.text

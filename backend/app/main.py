@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import anthropic
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from starlette.middleware.sessions import SessionMiddleware
 
 from app import db, trace
 from app.auth import oidc
@@ -24,6 +25,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Gatekeeper", lifespan=lifespan)
+# Holds only the in-progress login (state, nonce, PKCE verifier), so keep it short-lived.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    session_cookie="gk_login",
+    max_age=600,
+    same_site="lax",
+    https_only=settings.okta_redirect_uri.startswith("https://"),
+)
 app.include_router(oidc.router)
 
 

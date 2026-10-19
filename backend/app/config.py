@@ -18,5 +18,7 @@ class Settings(BaseSettings):
     okta_client_secret: str = ""
     okta_redirect_uri: str = "http://localhost:8000/auth/okta/callback"
 
+    session_secret: str
+
 
 settings = Settings()

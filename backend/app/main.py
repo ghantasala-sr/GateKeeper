@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 import anthropic
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -38,6 +39,15 @@ app.add_middleware(
     # (localhost:8080) is the same site as us. A real Entra IdP is cross-site: that
     # needs same_site="none" over HTTPS, or the InResponseTo check can't find the request.
 )
+# The frontend (a different origin) calls the API with a bearer token. No cookies
+# cross origins (allow_credentials=False), so CSRF isn't a concern for the API.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.frontend_url.rstrip("/")],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
+    allow_credentials=False,
+)
 app.include_router(oidc.router)
 app.include_router(saml.router)
 app.include_router(scim.router)
@@ -69,6 +79,15 @@ def health() -> dict[str, str]:
 @app.get("/.well-known/jwks.json")
 def jwks() -> dict:
     return tokens.jwks()
+
+
+@app.get("/me")
+async def me(principal: Principal = Depends(tokens.require_scope("docs:read"))) -> dict:
+    """Who the token belongs to, for the frontend's company/role badge."""
+    async with db.run_as(principal) as conn:
+        tenant_name = await conn.fetchval("SELECT name FROM tenants WHERE id = $1::uuid", principal.tenant_id)
+    return {"email": principal.email, "role": principal.role, "scopes": list(principal.scopes),
+            "tenant_id": principal.tenant_id, "tenant": tenant_name}
 
 
 @app.post("/chat")

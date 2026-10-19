@@ -28,6 +28,8 @@ class Settings(BaseSettings):
 
     session_secret: str
 
+    frontend_url: str = "http://localhost:3000"
+
     token_signing_key_b64: str
     token_issuer: str = "http://localhost:8000"
     token_audience: str = "gatekeeper-api"

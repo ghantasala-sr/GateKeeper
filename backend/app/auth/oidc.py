@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Request
 from joserfc.errors import JoseError
 
 from app import audit, db
+from app.auth import frontend
 from app.auth.bridge import AuthBridgeError, Principal, principal_from_okta
 from app.auth.tokens import login_response
 from app.config import settings
@@ -64,12 +65,17 @@ async def principal_for(claims: dict) -> Principal:
 
 
 @router.get("/login")
-async def login(request: Request):
+async def login(request: Request, next: str | None = None):
+    frontend.remember_next(request, next)
     return await okta().authorize_redirect(request, settings.okta_redirect_uri)
 
 
 @router.get("/callback")
-async def callback(request: Request) -> dict:
+async def callback(request: Request):
+    return await frontend.finish(request, lambda: _complete_login(request))
+
+
+async def _complete_login(request: Request) -> dict:
     client = okta()
     try:
         token = await client.authorize_access_token(

@@ -16,6 +16,7 @@ from onelogin.saml2.idp_metadata_parser import OneLogin_Saml2_IdPMetadataParser
 from onelogin.saml2.settings import OneLogin_Saml2_Settings
 
 from app import audit, db
+from app.auth import frontend
 from app.auth.bridge import AuthBridgeError, Principal, principal_from_saml
 from app.auth.tokens import login_response
 from app.config import settings
@@ -107,7 +108,8 @@ def metadata() -> Response:
 
 
 @router.get("/login")
-async def login(request: Request) -> RedirectResponse:
+async def login(request: Request, next: str | None = None) -> RedirectResponse:
+    frontend.remember_next(request, next)
     auth = OneLogin_Saml2_Auth(await _request_data(request), saml_settings())
     url = auth.login()
     # Remember which AuthnRequest this browser sent; the response must answer it.
@@ -116,7 +118,11 @@ async def login(request: Request) -> RedirectResponse:
 
 
 @router.post("/acs")
-async def acs(request: Request) -> dict:
+async def acs(request: Request):
+    return await frontend.finish(request, lambda: _complete_login(request))
+
+
+async def _complete_login(request: Request) -> dict:
     # pop: each AuthnRequest can be answered once, so a captured response can't be replayed.
     request_id = request.session.pop(SESSION_KEY, None)
     if request_id is None:

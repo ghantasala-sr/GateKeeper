@@ -238,3 +238,11 @@ async def patch_user(user_id: str, request: Request, tenant_id: str = Depends(sc
     if fields.get("active") is False:
         logger.warning("scim deactivate: tenant=%s user=%s email=%s", tenant_id, row["id"], row["email"])
     return scim_response(to_scim(row, request))
+
+
+@router.get("/Groups")
+async def list_groups(tenant_id: str = Depends(scim_tenant), startIndex: int = 1):
+    """Okta probes Groups during setup. Group push isn't supported (roles come from
+    the IdP's login token), so report an empty list instead of a 404."""
+    return scim_response({"schemas": [LIST_SCHEMA], "totalResults": 0, "startIndex": max(startIndex, 1),
+                          "itemsPerPage": 0, "Resources": []})

@@ -233,3 +233,9 @@ def test_deactivation_blocks_chat_immediately(client, tokens, created, monkeypat
     client.patch(f"/scim/v2/Users/{user['id']}", json=DEACTIVATE, headers=h(tokens["Acme Corp"]))
     resp = ask()                                                    # same, unexpired token
     assert resp.status_code == 401 and resp.json()["detail"] == "User is not active"
+
+
+def test_groups_is_an_empty_list(client, tokens):
+    body = client.get("/scim/v2/Groups", params={"startIndex": 1, "count": 100}, headers=h(tokens["Acme Corp"])).json()
+    assert body["totalResults"] == 0 and body["Resources"] == []
+    assert client.get("/scim/v2/Groups").status_code == 401

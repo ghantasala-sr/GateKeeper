@@ -75,8 +75,14 @@ def test_tenant_context_requires_a_transaction():
 @pytest.mark.parametrize("tenant", ["Acme Corp", "Globex"])
 def test_each_tenant_sees_only_its_own_rows(tenant):
     async def test(pool, tenants):
+        # Ground truth per tenant, read as the owner (which bypasses RLS).
+        owner = await asyncpg.connect(settings.migration_database_url)
+        expected = {t: await owner.fetchval(f"SELECT count(*) FROM {t} WHERE tenant_id = $1::uuid", tenants[tenant])
+                    for t in TABLES}
+        await owner.close()
+        assert expected["documents"] == 10 and expected["chunks"] == 56 and expected["users"] >= 3
         async with db.run_as_tenant(tenants[tenant], "admin") as conn:
-            assert await counts(conn) == {"documents": 10, "chunks": 56, "users": 3}
+            assert await counts(conn) == expected
             for table in TABLES:
                 assert await tenant_ids_visible(conn, table) == {tenants[tenant]}
     run(test)

@@ -1,22 +1,170 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-const ROLE_LABEL = { employee: "Employee", hr_manager: "HR manager", admin: "Admin" };
+const LEVELS = [
+  { key: "public", label: "Public", short: "PUB" },
+  { key: "hr_confidential", label: "HR confidential", short: "HR" },
+  { key: "executive", label: "Executive", short: "EXEC" },
+];
+const CLEARANCE = {
+  employee: ["public"],
+  hr_manager: ["public", "hr_confidential"],
+  admin: ["public", "hr_confidential", "executive"],
+};
+const ROLE_LABEL = { employee: "Employee", hr_manager: "HR manager", admin: "Administrator" };
+const IDP_LABEL = { okta_oidc: "Okta · OIDC", entra_saml: "SAML" };
 
-// Read and immediately clear the login result the API put in the URL fragment.
+const SUGGESTIONS = [
+  { q: "How many PTO days do I get, and can I carry any over?", level: "public" },
+  { q: "What are the senior engineer salary bands?", level: "hr_confidential" },
+  { q: "What is the Q3 revenue target?", level: "executive" },
+];
+
+// The login result the API put in the URL fragment. layout.jsx has already removed it
+// from the address bar before the app started; take it (once) from where it parked it.
 function takeLoginFragment() {
-  if (typeof window === "undefined" || !window.location.hash) return {};
-  const params = new URLSearchParams(window.location.hash.slice(1));
-  window.history.replaceState(null, "", window.location.pathname);
+  if (typeof window === "undefined" || !window.__gkLogin) return {};
+  const params = new URLSearchParams(window.__gkLogin);
+  delete window.__gkLogin;
   return {
     token: params.get("access_token"),
     expiresIn: Number(params.get("expires_in") || 0),
     error: params.get("error"),
   };
 }
+
+function tenantClass(name = "") {
+  return name.toLowerCase().startsWith("globex") ? "t-globex" : "t-acme";
+}
+
+/* ---------- small pieces ---------- */
+
+function Stamp({ level, dim }) {
+  const l = LEVELS.find((x) => x.key === level);
+  return (
+    <span className={`stamp s-${level}${dim ? " dim" : ""}`} title={l?.label}>
+      <span className="stamp-long">{l ? l.label : level}</span>
+      <span className="stamp-short" aria-hidden>{l ? l.short : level}</span>
+    </span>
+  );
+}
+
+function ClearanceBar({ role }) {
+  const cleared = CLEARANCE[role] || [];
+  return (
+    <span className="clearance" aria-label={`Cleared for ${cleared.join(", ")}`}>
+      {LEVELS.map((l) => (
+        <span key={l.key} className={`notch s-${l.key}${cleared.includes(l.key) ? " on" : ""}`} title={l.label}>
+          {l.short}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+// Answers come back as light Markdown. Render bullets, **bold**, and [REF] citations; nothing else.
+function Inline({ text }) {
+  const parts = text.split(/(\*\*[^*]+\*\*|\[[A-Z]+-[A-Z]+-\d+\])/g);
+  return parts.map((p, i) => {
+    if (p.startsWith("**") && p.endsWith("**")) return <strong key={i}>{p.slice(2, -2)}</strong>;
+    if (/^\[[A-Z]+-[A-Z]+-\d+\]$/.test(p)) return <span key={i} className="cite">{p.slice(1, -1)}</span>;
+    return <Fragment key={i}>{p}</Fragment>;
+  });
+}
+
+function Answer({ text }) {
+  const blocks = [];
+  for (const line of text.split("\n")) {
+    const bullet = line.match(/^\s*[-*]\s+(.*)/);
+    const last = blocks[blocks.length - 1];
+    if (bullet) {
+      if (last?.type === "ul") last.items.push(bullet[1]);
+      else blocks.push({ type: "ul", items: [bullet[1]] });
+    } else if (line.trim().startsWith("|")) {
+      if (/^\s*\|[\s|:-]+\|\s*$/.test(line)) continue; // table divider row
+      const cells = line.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      if (last?.type === "table") last.rows.push(cells);
+      else blocks.push({ type: "table", rows: [cells] });
+    } else if (line.trim()) {
+      blocks.push({ type: "p", text: line });
+    }
+  }
+  return blocks.map((b, i) => {
+    if (b.type === "ul") return <ul key={i}>{b.items.map((t, j) => <li key={j}><Inline text={t} /></li>)}</ul>;
+    if (b.type === "table")
+      return (
+        <table key={i}>
+          <tbody>{b.rows.map((r, j) => <tr key={j}>{r.map((c, k) => (j === 0 ? <th key={k}><Inline text={c} /></th> : <td key={k}><Inline text={c} /></td>))}</tr>)}</tbody>
+        </table>
+      );
+    return <p key={i}><Inline text={b.text} /></p>;
+  });
+}
+
+/* ---------- login ---------- */
+
+function Login({ notice }) {
+  return (
+    <main className="login">
+      <section className="login-intro">
+        <p className="eyebrow">Gatekeeper · Records desk</p>
+        <h1>
+          Every answer is <em>cleared at the door.</em>
+        </h1>
+        <p className="lede">
+          Ask about your company's handbook, pay bands, or plans. Before the assistant reads a single page, the
+          database removes everything your badge doesn't open. What it never sees, it can't repeat.
+        </p>
+
+        <table className="matrix" aria-label="Who can read what">
+          <thead>
+            <tr>
+              <th />
+              {LEVELS.map((l) => <th key={l.key}><Stamp level={l.key} /></th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(CLEARANCE).map(([role, levels]) => (
+              <tr key={role}>
+                <th scope="row">{ROLE_LABEL[role]}</th>
+                {LEVELS.map((l) => <td key={l.key}>{levels.includes(l.key) ? "●" : "—"}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="footnote">Nobody, not even an administrator, can read another company's records.</p>
+      </section>
+
+      <section className="login-desk">
+        {notice && (
+          <div className="revoked" role="alert">
+            <span className="revoked-stamp">{notice.title}</span>
+            <p>{notice.text}</p>
+          </div>
+        )}
+        <p className="desk-label">Present your company badge</p>
+        <a className="idcard t-acme" href={`${API}/auth/okta/login?next=app`} aria-label="Sign in to Acme Corp with Okta">
+          <span className="slot" aria-hidden />
+          <span className="idcard-company">Acme Corp</span>
+          <span className="idcard-meta">Sign in with Okta · OIDC</span>
+          <span className="idcard-go">Continue →</span>
+        </a>
+        <a className="idcard t-globex" href={`${API}/auth/saml/login?next=app`} aria-label="Sign in to Globex with SAML">
+          <span className="slot" aria-hidden />
+          <span className="idcard-company">Globex</span>
+          <span className="idcard-meta">Sign in with SAML</span>
+          <span className="idcard-go">Continue →</span>
+        </a>
+        <p className="desk-note">Your company's identity provider vouches for you. Gatekeeper never sees your password.</p>
+      </section>
+    </main>
+  );
+}
+
+/* ---------- desk (signed in) ---------- */
 
 export default function Home() {
   // The access token lives in memory only: not localStorage, not a cookie.
@@ -28,18 +176,23 @@ export default function Home() {
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
   const endRef = useRef(null);
+  const inputRef = useRef(null);
 
-  const logOut = useCallback((reason) => {
+  // notice: { title, text } shown on the sign-in screen, e.g. after access is withdrawn.
+  const logOut = useCallback((notice) => {
     setToken(null);
     setExpiresAt(null);
     setMe(null);
     setMessages([]);
-    setNotice(reason || null);
+    setNotice(notice || null);
   }, []);
 
   useEffect(() => {
     const { token, expiresIn, error } = takeLoginFragment();
-    if (error) setNotice(`Login failed: ${error}`);
+    if (error) {
+      const reason = error.replace(/^Login refused:\s*/, "");
+      setNotice({ title: "Sign-in refused", text: reason.charAt(0).toUpperCase() + reason.slice(1) + "." });
+    }
     if (!token) return;
     setToken(token);
     setExpiresAt(Date.now() + expiresIn * 1000);
@@ -48,25 +201,27 @@ export default function Home() {
   // Drop the token when it expires (15 minutes) rather than waiting for a 401.
   useEffect(() => {
     if (!token || !expiresAt) return;
-    const timer = setTimeout(() => logOut("Your session expired. Please log in again."), expiresAt - Date.now());
+    const timer = setTimeout(
+      () => logOut({ title: "Session expired", text: "Sessions last 15 minutes. Sign in again to continue." }),
+      expiresAt - Date.now(),
+    );
     return () => clearTimeout(timer);
   }, [token, expiresAt, logOut]);
 
   useEffect(() => {
     if (!token) return;
     fetch(`${API}/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(async (r) => (r.ok ? setMe(await r.json()) : logOut((await r.json()).detail)))
-      .catch(() => setNotice("Can't reach the Gatekeeper API."));
+      .then(async (r) => (r.ok ? setMe(await r.json()) : logOut({ title: "Access ended", text: (await r.json()).detail })))
+      .catch(() => logOut({ title: "Unavailable", text: "Can't reach the Gatekeeper API." }));
   }, [token, logOut]);
 
   useEffect(() => {
     // Braces matter: scrollIntoView can return a Promise, and an effect may only return a cleanup function.
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, busy]);
 
-  async function ask(e) {
-    e.preventDefault();
-    const q = question.trim();
+  async function ask(q) {
+    q = q.trim();
     if (!q || busy) return;
     setQuestion("");
     setMessages((m) => [...m, { from: "user", text: q }]);
@@ -80,81 +235,110 @@ export default function Home() {
       const body = await r.json();
       if (r.status === 401) {
         // Deactivated in the IdP, demoted, or expired: the API said no.
-        logOut(`Access ended: ${body.detail}. Please log in again.`);
+        logOut({ title: "Access ended", text: `${body.detail}. Your access was withdrawn mid-session.` });
         return;
       }
       if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
-      const sources = [...new Set(body.chunks.map((c) => c.reference))];
-      setMessages((m) => [...m, { from: "bot", text: body.answer, sources, forbidden: body.forbidden_retrieved }]);
+      const sources = [];
+      for (const c of body.chunks) if (!sources.some((s) => s.ref === c.reference)) sources.push({ ref: c.reference, level: c.classification });
+      setMessages((m) => [...m, { from: "desk", text: body.answer, sources, withheld: body.forbidden_retrieved }]);
     } catch (err) {
-      setMessages((m) => [...m, { from: "bot", text: `Something went wrong: ${err.message}`, error: true }]);
+      setMessages((m) => [...m, { from: "desk", text: `Something went wrong: ${err.message}`, error: true }]);
     } finally {
       setBusy(false);
+      inputRef.current?.focus();
     }
   }
 
-  if (!token) {
-    return (
-      <main className="login">
-        <h1>Gatekeeper</h1>
-        <p className="tagline">Ask about your company's documents. You only ever see what you're allowed to.</p>
-        {notice && <p className="notice" role="alert">{notice}</p>}
-        <div className="buttons">
-          <a className="button" href={`${API}/auth/okta/login?next=app`}>
-            Log in with Okta <span>Acme Corp</span>
-          </a>
-          <a className="button" href={`${API}/auth/saml/login?next=app`}>
-            Log in with SAML <span>Globex</span>
-          </a>
-        </div>
-      </main>
-    );
-  }
+  if (!token) return <Login notice={notice} />;
 
   return (
-    <main className="chat">
-      <header>
-        <h1>Gatekeeper</h1>
+    <div className={`desk ${tenantClass(me?.tenant)}`}>
+      <header className="desk-head">
+        <span className="wordmark">Gatekeeper</span>
         {me && (
-          <div className="badge" title={me.email}>
-            <strong>{me.tenant}</strong>
-            <span>{ROLE_LABEL[me.role] || me.role}</span>
-            <span className="email">{me.email}</span>
+          <div className="lanyard" title={me.email}>
+            <span className="lanyard-company">{me.tenant}</span>
+            <span className="lanyard-role">{ROLE_LABEL[me.role] || me.role}</span>
+            <ClearanceBar role={me.role} />
+            <span className="lanyard-idp">{IDP_LABEL[me.idp_type] || me.idp_type}</span>
           </div>
         )}
-        <button className="link" onClick={() => logOut()}>Log out</button>
+        <button className="signout" onClick={() => logOut()}>Sign out</button>
       </header>
 
-      <section className="messages" aria-live="polite">
+      <main className="ledger" aria-live="polite">
         {messages.length === 0 && (
-          <p className="empty">Try “How many PTO days do I get?” or “What are the senior engineer salary bands?”</p>
+          <section className="welcome">
+            <h2>{me ? <>Good to see you, <em>{me.email.split("@")[0]}</em>.</> : "Opening your file…"}</h2>
+            <p>Ask anything about {me?.tenant || "your company"}'s records. Try one of these; some may be above your clearance, and that's the point.</p>
+            <div className="suggestions">
+              {SUGGESTIONS.map((s) => (
+                <button key={s.q} className="suggestion" onClick={() => ask(s.q)} disabled={busy}>
+                  <Stamp level={s.level} dim={me && !(CLEARANCE[me.role] || []).includes(s.level)} />
+                  <span>{s.q}</span>
+                </button>
+              ))}
+            </div>
+          </section>
         )}
-        {messages.map((m, i) => (
-          <div key={i} className={`message ${m.from}${m.error ? " error" : ""}`}>
-            <p>{m.text}</p>
-            {m.sources && (
-              <p className="meta">
-                {m.sources.length ? `Sources: ${m.sources.join(", ")}` : "No documents"}
-                <span className={m.forbidden ? "pill bad" : "pill"}>forbidden retrieved: {m.forbidden}</span>
-              </p>
-            )}
-          </div>
-        ))}
-        {busy && <div className="message bot"><p className="thinking">Searching documents…</p></div>}
-        <div ref={endRef} />
-      </section>
 
-      <form onSubmit={ask}>
+        {messages.map((m, i) =>
+          m.from === "user" ? (
+            <div key={i} className="entry ask">
+              <span className="entry-label">Q</span>
+              <p>{m.text}</p>
+            </div>
+          ) : (
+            <article key={i} className={`entry memo${m.error ? " memo-error" : ""}`}>
+              <span className="entry-label">A</span>
+              <div className="memo-body">
+                <Answer text={m.text} />
+                {m.sources && (
+                  <footer className="memo-foot">
+                    <div className="tabs">
+                      {m.sources.length ? (
+                        m.sources.map((s) => (
+                          <span key={s.ref} className={`filetab s-${s.level}`}>
+                            <span className="filetab-ref">{s.ref}</span>
+                            <span className="filetab-level">{LEVELS.find((l) => l.key === s.level)?.short}</span>
+                          </span>
+                        ))
+                      ) : (
+                        <span className="no-files">No files opened</span>
+                      )}
+                    </div>
+                    <span className={`seal${m.withheld ? " breach" : ""}`}>
+                      {m.withheld ? `⚠ ${m.withheld} restricted passages reached the model` : "✓ Cleared by the database · 0 restricted passages"}
+                    </span>
+                  </footer>
+                )}
+              </div>
+            </article>
+          ),
+        )}
+
+        {busy && (
+          <div className="entry memo pending">
+            <span className="entry-label">A</span>
+            <p className="pulling">Pulling files you're cleared for…</p>
+          </div>
+        )}
+        <div ref={endRef} />
+      </main>
+
+      <form className="composer" onSubmit={(e) => { e.preventDefault(); ask(question); }}>
         <input
+          ref={inputRef}
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          placeholder="Ask a question about your company's documents"
+          placeholder={`Ask about ${me?.tenant || "your company"}'s records…`}
           aria-label="Question"
           disabled={busy}
           autoFocus
         />
-        <button type="submit" disabled={busy || !question.trim()}>Send</button>
+        <button type="submit" disabled={busy || !question.trim()}>Ask</button>
       </form>
-    </main>
+    </div>
   );
 }

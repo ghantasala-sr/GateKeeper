@@ -94,8 +94,9 @@ def test_me_returns_badge_info(client, acme_user):  # noqa: F811
     assert resp.status_code == 200
     body = resp.json()
     assert body["email"].endswith("@acme.example")  # from the database row, not the token
-    assert {k: body[k] for k in ("role", "scopes", "tenant_id", "tenant")} == {
-        "role": "hr_manager", "scopes": ["docs:read"], "tenant_id": p.tenant_id, "tenant": "Acme Corp"}
+    assert {k: body[k] for k in ("role", "scopes", "tenant_id", "tenant", "idp_type")} == {
+        "role": "hr_manager", "scopes": ["docs:read"], "tenant_id": p.tenant_id, "tenant": "Acme Corp",
+        "idp_type": "okta_oidc"}
     assert client.get("/me").status_code == 401
 
 

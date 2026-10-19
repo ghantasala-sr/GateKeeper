@@ -85,9 +85,9 @@ def jwks() -> dict:
 async def me(principal: Principal = Depends(tokens.require_scope("docs:read"))) -> dict:
     """Who the token belongs to, for the frontend's company/role badge."""
     async with db.run_as(principal) as conn:
-        tenant_name = await conn.fetchval("SELECT name FROM tenants WHERE id = $1::uuid", principal.tenant_id)
+        tenant = await conn.fetchrow("SELECT name, idp_type FROM tenants WHERE id = $1::uuid", principal.tenant_id)
     return {"email": principal.email, "role": principal.role, "scopes": list(principal.scopes),
-            "tenant_id": principal.tenant_id, "tenant": tenant_name}
+            "tenant_id": principal.tenant_id, "tenant": tenant["name"], "idp_type": tenant["idp_type"]}
 
 
 @app.post("/chat")

@@ -49,6 +49,7 @@ and what the database let through.</em></p>
 - [Configuration](#configuration)
 - [Testing](#testing)
 - [Security](#security)
+- [Deployment](#deployment)
 - [Limitations and roadmap](#limitations-and-roadmap)
 - [License](#license)
 
@@ -513,6 +514,14 @@ The access matrix was also mutation-tested: dropping the `role_access` policy ma
 [`docs/SECURITY.md`](docs/SECURITY.md) answers the questions a customer's security team typically asks (how
 users log in, how tenants are separated, whether the AI can see other tenants' data, how fast access is
 removed, token lifetime, audit trail, and testing), with pointers to the code and tests behind each answer.
+
+## Deployment
+
+[**GateKeeper-enclave**](https://github.com/ghantasala-sr/GateKeeper-enclave) is the companion repo that deploys a
+pinned Gatekeeper release into a **zero-egress Google Cloud environment**: a private VPC with no internet route, private
+GKE and Cloud SQL, Gemini on Vertex AI over Google's restricted API range (or a fully self-hosted model), and an offline
+install bundle. This repo owns what versions with the app (code, images, Helm chart); that one owns the environment
+(Terraform, environment values, packaging, runbooks, and the proof that nothing leaves).
 
 ## Limitations and roadmap
 
